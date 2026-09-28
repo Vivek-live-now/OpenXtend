@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">OpenXtend</string>
+    <string name="connected">Connected</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="connecting">Connecting…</string>
+    <string name="scan">Scan for Xtend</string>
+    <string name="sync_time">Sync Time</string>
+    <string name="reboot_watch">Reboot Watch</string>
+    <string name="raise_to_wake">Raise to Wake</string>
+    <string name="music_control">Music Control</string>
+    <string name="notification_service_label">OpenXtend Notification Forwarder</string>
+</resources>
