@@ -10,12 +10,10 @@ import android.content.Context
 import android.os.Build
 import android.os.ParcelUuid
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import org.openxtend.model.ConnectionStatus
 import org.openxtend.model.WatchInfo
 import java.util.LinkedList
@@ -26,6 +24,9 @@ class IdoBleManager(private val context: Context) {
 
     companion object {
         private const val TAG = "IdoBleManager"
+        private const val PREFS_NAME = "openxtend_prefs"
+        private const val KEY_LAST_DEVICE = "last_device_address"
+        private const val KEY_PAIRED_PREFIX = "is_paired_"
     }
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
@@ -47,10 +48,14 @@ class IdoBleManager(private val context: Context) {
 
     private val writeQueue: Queue<ByteArray> = LinkedList()
     private var isWriting = false
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private var autoReconnectJob: Job? = null
+    private var isManualDisconnect = false
 
     // Event listener for incoming events like Find Phone
     var onFindPhoneRequested: (() -> Unit)? = null
+    var onStatusMessage: ((String) -> Unit)? = null
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -60,7 +65,7 @@ class IdoBleManager(private val context: Context) {
                 name.contains("ID206", ignoreCase = true) ||
                 name.contains("boAt", ignoreCase = true) ||
                 name.contains("VeryFit", ignoreCase = true)) {
-                
+
                 val current = _discoveredDevices.value.toMutableList()
                 if (current.none { it.address == device.address }) {
                     current.add(device)
@@ -89,7 +94,6 @@ class IdoBleManager(private val context: Context) {
             .build()
 
         try {
-            // Scan with and without filter in case device advertisement hides service UUID
             scanner.startScan(listOf(filter), settings, scanCallback)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start BLE scan", e)
@@ -110,8 +114,20 @@ class IdoBleManager(private val context: Context) {
 
     fun connect(device: BluetoothDevice) {
         stopScan()
+        autoReconnectJob?.cancel()
+        isManualDisconnect = false
         _connectionStatus.value = ConnectionStatus.CONNECTING
         Log.i(TAG, "Connecting to ${device.name ?: "Watch"} [${device.address}]")
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_LAST_DEVICE, device.address).apply()
+
+        val isPaired = prefs.getBoolean(KEY_PAIRED_PREFIX + device.address, false)
+        _watchInfo.value = _watchInfo.value.copy(
+            deviceName = device.name ?: "boAt Xtend",
+            deviceAddress = device.address,
+            isPaired = isPaired
+        )
 
         bluetoothGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
@@ -121,6 +137,8 @@ class IdoBleManager(private val context: Context) {
     }
 
     fun disconnect() {
+        isManualDisconnect = true
+        autoReconnectJob?.cancel()
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
         bluetoothGatt = null
@@ -142,10 +160,15 @@ class IdoBleManager(private val context: Context) {
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    Log.w(TAG, "GATT Disconnected")
+                    Log.w(TAG, "GATT Disconnected (status: $status)")
                     _connectionStatus.value = ConnectionStatus.DISCONNECTED
                     writeQueue.clear()
                     isWriting = false
+
+                    // Auto-reconnect if not manual disconnect
+                    if (!isManualDisconnect) {
+                        scheduleAutoReconnect()
+                    }
                 }
             }
         }
@@ -176,8 +199,9 @@ class IdoBleManager(private val context: Context) {
                 Log.i(TAG, "CCCD Notifications enabled! Connected & ready.")
                 _connectionStatus.value = ConnectionStatus.CONNECTED
 
-                // Trigger initial sync pipeline
+                // Initial queries
                 scope.launch {
+                    delay(300)
                     syncWatch()
                 }
             }
@@ -192,6 +216,23 @@ class IdoBleManager(private val context: Context) {
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             val data = characteristic.value ?: return
             handleIncomingPacket(data)
+        }
+    }
+
+    private fun scheduleAutoReconnect() {
+        autoReconnectJob?.cancel()
+        autoReconnectJob = scope.launch {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val lastAddr = prefs.getString(KEY_LAST_DEVICE, null) ?: return@launch
+
+            delay(3000)
+            if (_connectionStatus.value == ConnectionStatus.DISCONNECTED && !isManualDisconnect) {
+                val device = bluetoothAdapter?.getRemoteDevice(lastAddr)
+                if (device != null) {
+                    Log.i(TAG, "Auto-reconnecting to $lastAddr...")
+                    connect(device)
+                }
+            }
         }
     }
 
@@ -233,6 +274,22 @@ class IdoBleManager(private val context: Context) {
                     liveHeartRate = result.heartRate
                 )
             }
+            is IdoPacketDecoder.DecodeResult.BindResult -> {
+                if (result.success) {
+                    _watchInfo.value = current.copy(
+                        isPaired = true,
+                        lastSyncStatus = "Paired & Bonded!"
+                    )
+                    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit().putBoolean(KEY_PAIRED_PREFIX + current.deviceAddress, true).apply()
+                    onStatusMessage?.invoke("Watch Paired Successfully!")
+                    syncWatch()
+                }
+            }
+            is IdoPacketDecoder.DecodeResult.TimeSyncAck -> {
+                _watchInfo.value = current.copy(lastSyncStatus = "Time Synchronized!")
+                onStatusMessage?.invoke("Time Synchronized!")
+            }
             is IdoPacketDecoder.DecodeResult.FindPhoneTriggered -> {
                 onFindPhoneRequested?.invoke()
             }
@@ -263,14 +320,37 @@ class IdoBleManager(private val context: Context) {
     }
 
     /**
-     * Initial sync routine: sync time, query info, query battery, query steps
+     * Pair/Bind Watch: Prompts checkmark on the boAt Xtend screen.
+     */
+    fun pairWatch() {
+        Log.i(TAG, "Sending BIND_START (04 01 F1...)")
+        enqueueCommand(IdoPacketEncoder.buildBindStart())
+        _watchInfo.value = _watchInfo.value.copy(lastSyncStatus = "Pairing prompt sent to watch screen...")
+    }
+
+    /**
+     * Unbind watch
+     */
+    fun unbindWatch() {
+        enqueueCommand(IdoPacketEncoder.buildUnbind())
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_PAIRED_PREFIX + _watchInfo.value.deviceAddress, false).apply()
+        _watchInfo.value = _watchInfo.value.copy(isPaired = false)
+    }
+
+    /**
+     * Sync routine: Time, device info, battery, steps, live activity
      */
     fun syncWatch() {
+        _watchInfo.value = _watchInfo.value.copy(
+            lastSyncEpoch = System.currentTimeMillis(),
+            lastSyncStatus = "Syncing..."
+        )
         enqueueCommand(IdoPacketEncoder.buildSetTime())
         enqueueCommand(IdoPacketEncoder.buildGetDeviceInfo())
         enqueueCommand(IdoPacketEncoder.buildGetBatteryInfo())
+        enqueueCommand(IdoPacketEncoder.buildGetLiveActivity())
         enqueueCommand(IdoPacketEncoder.buildGetLiveData())
-        _watchInfo.value = _watchInfo.value.copy(lastSyncEpoch = System.currentTimeMillis())
     }
 
     fun setRaiseToWake(enabled: Boolean) {
@@ -283,6 +363,14 @@ class IdoBleManager(private val context: Context) {
 
     fun findPhone() {
         enqueueCommand(IdoPacketEncoder.buildFindPhone(30))
+    }
+
+    /**
+     * Find Watch: Sends vibration command (03 21) AND triggers alert screen
+     */
+    fun findWatch() {
+        enqueueCommand(IdoPacketEncoder.buildFindWatch())
+        enqueueCommand(IdoPacketEncoder.buildCallAlert("FIND WATCH"))
     }
 
     fun rebootWatch() {

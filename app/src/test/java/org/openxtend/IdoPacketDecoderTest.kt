@@ -70,4 +70,12 @@ class IdoPacketDecoderTest {
         assertEquals(5432, update.steps)
         assertEquals(78, update.heartRate)
     }
+
+    @Test
+    fun testDecodeBindSuccess() {
+        val mockData = byteArrayOf(0x04, 0x01, 0x00, 0x00)
+        val result = IdoPacketDecoder.decodePacket(mockData, WatchInfo())
+        assertTrue(result is IdoPacketDecoder.DecodeResult.BindResult)
+        assertTrue((result as IdoPacketDecoder.DecodeResult.BindResult).success)
+    }
 }

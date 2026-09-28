@@ -57,9 +57,20 @@ class WatchSyncService : Service() {
                 }
                 val notification = buildForegroundNotification(statusText)
                 val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                manager.notify(NOTIFICATION_ID, notification)
             }
         }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val currentStatus = bleManager.connectionStatus.value
+        val info = bleManager.watchInfo.value
+        val text = if (currentStatus == ConnectionStatus.CONNECTED) {
+            "Connected • ${info.batteryPercent}% (${info.batteryMv} mV)"
+        } else {
+            "Status: $currentStatus"
+        }
+        startForeground(NOTIFICATION_ID, buildForegroundNotification(text))
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder = binder

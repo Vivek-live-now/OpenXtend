@@ -29,6 +29,7 @@ import org.openxtend.model.WatchSettings
 import org.openxtend.service.WatchSyncService
 import org.openxtend.ui.screens.ControlsScreen
 import org.openxtend.ui.screens.DashboardScreen
+import org.openxtend.ui.screens.GeminiScreen
 import org.openxtend.ui.screens.NotificationsScreen
 import org.openxtend.ui.screens.WatchFaceScreen
 import org.openxtend.ui.theme.AccentCyan
@@ -38,6 +39,7 @@ import org.openxtend.ui.theme.SurfaceDark
 
 enum class MainTab(val title: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Default.Watch),
+    GEMINI("Gemini AI", Icons.Default.AutoAwesome),
     CONTROLS("Controls", Icons.Default.Tune),
     ALERTS("Alerts", Icons.Default.Notifications),
     FACES("Faces", Icons.Default.Palette)
@@ -58,6 +60,11 @@ class MainActivity : ComponentActivity() {
             syncService?.bleManager?.onFindPhoneRequested = {
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, "Watch triggered: Find Phone!", Toast.LENGTH_LONG).show()
+                }
+            }
+            syncService?.bleManager?.onStatusMessage = { msg ->
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -167,8 +174,19 @@ class MainActivity : ComponentActivity() {
                         onStopScan = { syncService?.bleManager?.stopScan() },
                         onConnectDevice = { device -> syncService?.bleManager?.connect(device) },
                         onDisconnect = { syncService?.bleManager?.disconnect() },
+                        onPairWatch = { syncService?.bleManager?.pairWatch() },
                         onSyncNow = { syncService?.bleManager?.syncWatch() },
-                        onFindWatch = { syncService?.bleManager?.findPhone() }
+                        onFindWatch = { syncService?.bleManager?.findWatch() }
+                    )
+                    MainTab.GEMINI -> GeminiScreen(
+                        isConnected = (connectionStatus == ConnectionStatus.CONNECTED),
+                        onSendToWatch = { replyText ->
+                            syncService?.bleManager?.pushNotification(
+                                typeId = 8,
+                                sender = "Gemini AI",
+                                message = replyText
+                            )
+                        }
                     )
                     MainTab.CONTROLS -> ControlsScreen(
                         isConnected = (connectionStatus == ConnectionStatus.CONNECTED),

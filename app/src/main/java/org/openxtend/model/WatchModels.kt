@@ -26,15 +26,18 @@ enum class NotificationApp(val typeId: Int, val title: String) {
 
 data class WatchInfo(
     val deviceName: String = "boAt Xtend",
+    val deviceAddress: String = "",
     val deviceId: Int = 0,
     val firmwareVersion: Int = 0,
     val batteryPercent: Int = 0,
     val batteryMv: Int = 0,
     val isCharging: Boolean = false,
     val isLowPower: Boolean = false,
+    val isPaired: Boolean = false,
     val liveSteps: Int = 0,
     val liveHeartRate: Int = 0,
-    val lastSyncEpoch: Long = 0L
+    val lastSyncEpoch: Long = 0L,
+    val lastSyncStatus: String = ""
 )
 
 data class WatchSettings(

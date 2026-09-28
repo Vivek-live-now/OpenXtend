@@ -35,6 +35,7 @@ fun DashboardScreen(
     onStopScan: () -> Unit,
     onConnectDevice: (BluetoothDevice) -> Unit,
     onDisconnect: () -> Unit,
+    onPairWatch: () -> Unit,
     onSyncNow: () -> Unit,
     onFindWatch: () -> Unit
 ) {
@@ -92,7 +93,7 @@ fun DashboardScreen(
             }
         }
 
-        // Connection & Scan Card
+        // Device Link & Pairing Card
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardBackground),
@@ -138,6 +139,58 @@ fun DashboardScreen(
                                 Text("Disconnect", fontSize = 12.sp)
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Pairing / Bond Status Banner
+                        if (!watchInfo.isPaired) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF332005),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFFFFB300))),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("UNPAIRED WATCH DETECTED", color = Color(0xFFFFB300), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "iDO watches lock out step data and disconnect on minimize until paired.",
+                                        color = TextPrimary,
+                                        fontSize = 12.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(
+                                        onClick = onPairWatch,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB300), contentColor = DarkBackground),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Pair Watch (Accept ✓ on screen)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = AccentGreen.copy(alpha = 0.12f),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(AccentGreen)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Paired & Bonded — Persistent Background Link Active", color = AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+
                     } else {
                         Text(
                             text = "No watch connected. Turn on Bluetooth and scan.",
@@ -279,13 +332,20 @@ fun DashboardScreen(
                                     color = SurfaceDark,
                                     border = BorderStroke(1.dp, SurfaceBorder)
                                 ) {
-                                    Text(
-                                        text = "${watchInfo.batteryMv} mV",
-                                        color = AccentCyan,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
+                                    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "${watchInfo.batteryMv} mV",
+                                            color = AccentCyan,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "LiPo Cell",
+                                            color = TextSecondary,
+                                            fontSize = 10.sp
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -346,34 +406,53 @@ fun DashboardScreen(
                 }
             }
 
-            // Quick Actions
+            // Quick Actions & Status
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onSyncNow,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
-                        border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.5f))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Sync Time", fontSize = 13.sp)
+                        OutlinedButton(
+                            onClick = onSyncNow,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
+                            border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.5f))
+                        ) {
+                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Sync All", fontSize = 13.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = onFindWatch,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentGreen),
+                            border = BorderStroke(1.dp, AccentGreen.copy(alpha = 0.5f))
+                        ) {
+                            Icon(Icons.Default.RingVolume, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Find Watch", fontSize = 13.sp)
+                        }
                     }
 
-                    OutlinedButton(
-                        onClick = onFindWatch,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentGreen),
-                        border = BorderStroke(1.dp, AccentGreen.copy(alpha = 0.5f))
-                    ) {
-                        Icon(Icons.Default.RingVolume, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Find Watch", fontSize = 13.sp)
+                    if (watchInfo.lastSyncStatus.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = SurfaceDark,
+                            border = BorderStroke(1.dp, SurfaceBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Status: ${watchInfo.lastSyncStatus}",
+                                color = AccentCyan,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -27,6 +27,33 @@ object IdoPacketEncoder {
     }
 
     /**
+     * GET 0x02 0x08: Query Activity / Steps
+     */
+    fun buildGetLiveActivity(): ByteArray {
+        return byteArrayOf(0x02, 0x08)
+    }
+
+    /**
+     * BIND 0x04 0x01: Start VeryFit/iDO pairing handshake
+     * Packet: 04 01 F1 01 01 02 02 01 00 (9 bytes)
+     * Triggers the pairing checkmark prompt on the boAt Xtend screen.
+     */
+    fun buildBindStart(): ByteArray {
+        return byteArrayOf(
+            0x04, 0x01,
+            0xF1.toByte(),
+            0x01, 0x01, 0x02, 0x02, 0x01, 0x00
+        )
+    }
+
+    /**
+     * UNBIND 0x04 0x02: Unpair watch
+     */
+    fun buildUnbind(): ByteArray {
+        return byteArrayOf(0x04, 0x02)
+    }
+
+    /**
      * SET 0x03 0x01: Sync Time (16 bytes total)
      * Format: 03 01 [Y_LO] [Y_HI] [MONTH] [DAY] [HOUR] [MIN] [SEC] [WEEKDAY] 00 00 00 00 00 00
      */
@@ -79,10 +106,17 @@ object IdoPacketEncoder {
     }
 
     /**
-     * SET 0x03 0x26: Find My Phone / Ring Watch
+     * SET 0x03 0x26: Find My Phone (Watch -> Phone)
      */
     fun buildFindPhone(timeoutSeconds: Int = 30): ByteArray {
         return byteArrayOf(0x03, 0x26, 0x01, timeoutSeconds.toByte())
+    }
+
+    /**
+     * SET 0x03 0x21: Lost Find / Find Watch (Phone -> Watch vibration & buzzer)
+     */
+    fun buildFindWatch(): ByteArray {
+        return byteArrayOf(0x03, 0x21, 0x01)
     }
 
     /**

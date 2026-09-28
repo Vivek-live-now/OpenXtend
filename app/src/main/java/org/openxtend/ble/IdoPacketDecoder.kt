@@ -8,6 +8,8 @@ object IdoPacketDecoder {
         data class DeviceInfoUpdate(val deviceId: Int, val firmwareVer: Int, val batteryPercent: Int, val isCharging: Boolean, val isLowPower: Boolean) : DecodeResult()
         data class BatteryUpdate(val voltageMv: Int, val batteryPercent: Int, val isCharging: Boolean, val isLowPower: Boolean) : DecodeResult()
         data class LiveDataUpdate(val steps: Int, val heartRate: Int) : DecodeResult()
+        data class BindResult(val success: Boolean) : DecodeResult()
+        data class TimeSyncAck(val success: Boolean) : DecodeResult()
         object FindPhoneTriggered : DecodeResult()
         object Unknown : DecodeResult()
     }
@@ -57,6 +59,18 @@ object IdoPacketDecoder {
                             )
                         }
                     }
+                    0x08 -> { // Activity reply
+                        if (data.size >= 6) {
+                            val steps = (data[2].toInt() and 0xFF) or
+                                    ((data[3].toInt() and 0xFF) shl 8) or
+                                    ((data[4].toInt() and 0xFF) shl 16) or
+                                    ((data[5].toInt() and 0xFF) shl 24)
+                            return DecodeResult.LiveDataUpdate(
+                                steps = steps,
+                                heartRate = current.liveHeartRate
+                            )
+                        }
+                    }
                     0xA0 -> { // Live Data reply
                         // 02 A0 [steps 4B LE] [cal 4B LE] [distance 4B LE] [hr 1B]
                         if (data.size >= 6) {
@@ -75,9 +89,19 @@ object IdoPacketDecoder {
                 }
             }
             0x03 -> { // SET reply or watch events
+                if (key == 0x01) {
+                    // Time sync ACK
+                    return DecodeResult.TimeSyncAck(true)
+                }
                 if (key == 0x26 && data.size >= 3) {
                     // Watch triggered "Find Phone"
                     return DecodeResult.FindPhoneTriggered
+                }
+            }
+            0x04 -> { // BIND reply
+                if (key == 0x01) {
+                    val success = (data.size >= 3 && data[2].toInt() == 0) || data.size >= 2
+                    return DecodeResult.BindResult(success)
                 }
             }
         }

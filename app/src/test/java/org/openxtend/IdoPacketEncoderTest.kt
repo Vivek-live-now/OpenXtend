@@ -97,4 +97,19 @@ class IdoPacketEncoderTest {
         // First frame payload check
         assertEquals(8.toByte(), frames[0][4]) // type WhatsApp
     }
+
+    @Test
+    fun testBindPacket() {
+        val packet = IdoPacketEncoder.buildBindStart()
+        assertEquals(9, packet.size)
+        assertEquals(0x04.toByte(), packet[0])
+        assertEquals(0x01.toByte(), packet[1])
+        assertEquals(0xF1.toByte(), packet[2])
+    }
+
+    @Test
+    fun testFindWatchPacket() {
+        val packet = IdoPacketEncoder.buildFindWatch()
+        assertArrayEquals(byteArrayOf(0x03, 0x21, 0x01), packet)
+    }
 }

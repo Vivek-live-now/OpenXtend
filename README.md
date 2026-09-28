@@ -35,16 +35,18 @@ OpenXtend communicates with the watch using the **Realtek / iDO BLE Protocol**:
 
 | Command | Wire Bytes (Sent to `0x0AF6`) | Description |
 | :--- | :--- | :--- |
+| **Bind / Pair Watch** | `04 01 F1 01 01 02 02 01 00` | Triggers pairing checkmark on screen & locks bond |
 | **Get Device Info** | `02 01` | Query FW version, Device ID, Battery status |
 | **Get Battery** | `02 05` | Query level % and cell voltage in mV |
+| **Get Live Activity**| `02 08` | Query real-time steps & distance |
 | **Get Live Data** | `02 A0` | Query current steps and live HR |
 | **Set Time** | `03 01 [Y_LO] [Y_HI] [M] [D] [h] [m] [s] [dow] 00 00...` | 16-byte atomic RTC time sync |
 | **Raise to Wake** | `03 28 [AA/55] 05 01 00 00 17 3B` | `AA` = Enabled, `55` = Disabled |
 | **Music Control** | `03 2A [AA/55] 55` | `AA` = Enabled, `55` = Disabled |
-| **Find Watch** | `03 26 01 1E` | Triggers watch vibration and alert screen |
+| **Find Watch** | `03 21 01` | Triggers watch vibration motor |
 | **Incoming Call** | `05 01 01 01 00 [len] [Name...]` | Shows caller name on watch screen |
 | **End Call** | `05 02 00` | Dismisses incoming call alert |
-| **App Notification**| `05 03 [chunks] [idx] [type] [len]...` | Pushes WhatsApp, SMS, or Telegram |
+| **Gemini AI / Alerts**| `05 03 [chunks] [idx] [type] [len]...` | Beams Gemini AI responses or WhatsApp |
 | **Reboot Watch** | `F0 01` | Hardware reset |
 | **Shutdown Watch**| `F0 03` | Power off |
 
