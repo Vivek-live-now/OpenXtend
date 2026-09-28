@@ -357,4 +357,12 @@ object IdoPacketEncoder {
 
         return frames
     }
+
+    /**
+     * CMD 0x13 0x02: Send Alexa UI State to watch screen
+     * state: 0x01 = Listening (wave), 0x02 = Thinking (spinner), 0x00 = Idle/Dismiss, 0x03 = Error
+     */
+    fun buildAlexaState(state: Int): ByteArray {
+        return byteArrayOf(0x13, 0x02, state.toByte(), 0x00)
+    }
 }

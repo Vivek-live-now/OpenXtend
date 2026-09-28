@@ -57,7 +57,12 @@ class IdoBleManager(private val context: Context) {
     // Event listener for incoming events like Find Phone & Voice Assistant
     var onFindPhoneRequested: (() -> Unit)? = null
     var onVoiceAssistantTriggered: ((key: Int, payload: ByteArray) -> Unit)? = null
+    var onWatchAudioReceived: ((ByteArray) -> Unit)? = null
+    var onWatchVoiceStatus: ((String) -> Unit)? = null
     var onStatusMessage: ((String) -> Unit)? = null
+
+    private val watchAudioBuffer = java.io.ByteArrayOutputStream()
+    private var isRecordingFromWatch = false
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -223,13 +228,30 @@ class IdoBleManager(private val context: Context) {
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray
         ) {
-            handleIncomingPacket(value)
+            if (characteristic.uuid == IdoGattAttributes.CHAR_NOTIFY_BULK) {
+                handleBulkData(value)
+            } else {
+                handleIncomingPacket(value)
+            }
         }
 
         @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             val data = characteristic.value ?: return
-            handleIncomingPacket(data)
+            if (characteristic.uuid == IdoGattAttributes.CHAR_NOTIFY_BULK) {
+                handleBulkData(data)
+            } else {
+                handleIncomingPacket(data)
+            }
+        }
+    }
+
+    private fun handleBulkData(data: ByteArray) {
+        if (isRecordingFromWatch) {
+            synchronized(watchAudioBuffer) {
+                watchAudioBuffer.write(data)
+            }
+            Log.d(TAG, "Bulk audio chunk from watch mic: ${data.size} B (Total buffer: ${watchAudioBuffer.size()} B)")
         }
     }
 
@@ -344,10 +366,56 @@ class IdoBleManager(private val context: Context) {
                 enqueueCommand(IdoPacketEncoder.buildGetHeartRate())
             }
             is IdoPacketDecoder.DecodeResult.VoiceAssistantTriggered -> {
-                Log.i(TAG, "Voice Assistant triggered on watch! Key: 0x${"%02X".format(result.key)}")
-                enqueueCommand(IdoPacketEncoder.buildAlexaVoiceAck(result.key))
+                val key = result.key
+                val payload = result.payload
+                Log.i(TAG, "Watch Voice Assistant event: key=0x${"%02X".format(key)}, len=${payload.size}")
+
+                when (key) {
+                    0x01 -> { // User opened Voice Assistant / pressed watch button to speak
+                        Log.i(TAG, "WATCH MIC START: User activated mic on watch!")
+                        enqueueCommand(IdoPacketEncoder.buildAlexaVoiceAck(0x01))
+                        enqueueCommand(IdoPacketEncoder.buildAlexaState(0x01)) // UI: Listening (wave)
+                        synchronized(watchAudioBuffer) {
+                            watchAudioBuffer.reset()
+                        }
+                        isRecordingFromWatch = true
+                        _watchInfo.value = current.copy(lastSyncStatus = "Watch Mic: Listening...")
+                        onWatchVoiceStatus?.invoke("Listening to watch microphone...")
+                    }
+                    0x02 -> { // Voice audio chunk on normal pipe
+                        enqueueCommand(IdoPacketEncoder.buildAlexaVoiceAck(0x02))
+                        if (payload.size > 2 && isRecordingFromWatch) {
+                            synchronized(watchAudioBuffer) {
+                                watchAudioBuffer.write(payload, 2, payload.size - 2)
+                            }
+                        }
+                    }
+                    0x03 -> { // User finished speaking / released watch button
+                        Log.i(TAG, "WATCH MIC STOP: User finished speaking into watch.")
+                        enqueueCommand(IdoPacketEncoder.buildAlexaVoiceAck(0x03))
+                        enqueueCommand(IdoPacketEncoder.buildAlexaState(0x02)) // UI: Thinking (spinner)
+                        isRecordingFromWatch = false
+                        _watchInfo.value = current.copy(lastSyncStatus = "Watch Mic: Thinking...")
+                        onWatchVoiceStatus?.invoke("Thinking... (Querying Gemini)")
+
+                        val audioBytes: ByteArray
+                        synchronized(watchAudioBuffer) {
+                            audioBytes = watchAudioBuffer.toByteArray()
+                        }
+                        Log.i(TAG, "Total audio captured from watch mic: ${audioBytes.size} bytes")
+                        onWatchAudioReceived?.invoke(audioBytes)
+                    }
+                    0x24 -> {
+                        enqueueCommand(IdoPacketEncoder.buildSetAlexaVoiceState(true))
+                    }
+                    0x21 -> {
+                        enqueueCommand(IdoPacketEncoder.buildSetAlexaReady())
+                    }
+                    else -> {
+                        enqueueCommand(IdoPacketEncoder.buildAlexaVoiceAck(key))
+                    }
+                }
                 onVoiceAssistantTriggered?.invoke(result.key, result.payload)
-                _watchInfo.value = current.copy(lastSyncStatus = "Watch Mic / Alexa Active")
             }
             else -> {}
         }

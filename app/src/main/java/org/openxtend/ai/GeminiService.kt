@@ -1,6 +1,8 @@
 package org.openxtend.ai
 
 import android.content.Context
+import android.util.Base64
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -14,15 +16,15 @@ import java.util.concurrent.TimeUnit
 class GeminiService(private val context: Context) {
 
     companion object {
+        private const val TAG = "GeminiService"
         private const val PREFS_NAME = "openxtend_gemini_prefs"
         private const val KEY_API_KEY = "gemini_api_key"
-        private const val PRIMARY_MODEL = "gemini-3.8-flash"
-        private const val FALLBACK_MODEL = "gemini-2.5-flash"
+        private val MODEL_CANDIDATES = listOf("gemini-flash-latest", "gemini-3.8-flash", "gemini-3.5-flash")
     }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
         .build()
 
     fun getApiKey(): String {
@@ -35,10 +37,13 @@ class GeminiService(private val context: Context) {
         prefs.edit().putString(KEY_API_KEY, apiKey.trim()).apply()
     }
 
+    /**
+     * Ask Gemini a text prompt with smart fallback across models.
+     */
     suspend fun askGemini(prompt: String): Result<String> = withContext(Dispatchers.IO) {
         val apiKey = getApiKey()
         if (apiKey.isBlank()) {
-            return@withContext Result.failure(Exception("Gemini API key is not configured. Enter your key in settings."))
+            return@withContext Result.failure(Exception("Gemini API key is not configured."))
         }
 
         if (apiKey.startsWith("gen-lang-client", ignoreCase = true)) {
@@ -47,30 +52,51 @@ class GeminiService(private val context: Context) {
             )
         }
 
-        // Try gemini-3.8-flash first
-        val firstAttempt = queryModel(PRIMARY_MODEL, apiKey, prompt)
-        if (firstAttempt.isSuccess) {
-            return@withContext firstAttempt
-        }
-
-        val err = firstAttempt.exceptionOrNull()
-        if (err != null && (err.message?.contains("404") == true || err.message?.contains("not found") == true)) {
-            // Fallback to gemini-2.5-flash
-            val fallbackAttempt = queryModel(FALLBACK_MODEL, apiKey, prompt)
-            if (fallbackAttempt.isSuccess) {
-                return@withContext fallbackAttempt
+        var lastError: Exception? = null
+        for (model in MODEL_CANDIDATES) {
+            val res = queryModelText(model, apiKey, prompt)
+            if (res.isSuccess) {
+                return@withContext res
             }
+            lastError = res.exceptionOrNull() as? Exception
+            Log.w(TAG, "Model $model failed: ${lastError?.message}, trying next candidate...")
         }
 
-        return@withContext firstAttempt
+        Result.failure(lastError ?: Exception("All Gemini model candidates failed."))
     }
 
-    private fun queryModel(modelName: String, apiKey: String, prompt: String): Result<String> {
+    /**
+     * Process audio recorded from the smartwatch's built-in microphone directly with Gemini multimodal.
+     */
+    suspend fun askGeminiAudio(
+        audioBytes: ByteArray,
+        mimeType: String = "audio/wav"
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val apiKey = getApiKey()
+        if (apiKey.isBlank()) {
+            return@withContext Result.failure(Exception("Gemini API key is not configured."))
+        }
+
+        val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
+        val promptInstruction = "The user spoke into their smartwatch microphone. Transcribe their question and answer it concisely in under 35 words for the watch screen."
+
+        var lastError: Exception? = null
+        for (model in MODEL_CANDIDATES) {
+            val res = queryModelAudio(model, apiKey, base64Audio, mimeType, promptInstruction)
+            if (res.isSuccess) {
+                return@withContext res
+            }
+            lastError = res.exceptionOrNull() as? Exception
+            Log.w(TAG, "Model $model audio failed: ${lastError?.message}, trying next candidate...")
+        }
+
+        Result.failure(lastError ?: Exception("Failed to process watch audio with Gemini."))
+    }
+
+    private fun queryModelText(modelName: String, apiKey: String, prompt: String): Result<String> {
         try {
             val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
-
-            // System prompt tailored for 1.69" smartwatch screen readability
-            val systemInstruction = "You are a concise tactical AI assistant for a smartwatch. Provide answers under 40 words, clear, high-contrast, easily readable on wrist. Prompt: "
+            val systemInstruction = "You are a concise tactical AI assistant for a smartwatch. Provide answers under 35 words, clear, high-contrast, easily readable on wrist. Prompt: "
 
             val jsonBody = JSONObject().apply {
                 val contents = JSONArray().apply {
@@ -100,7 +126,7 @@ class GeminiService(private val context: Context) {
             val responseString = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return Result.failure(Exception("Gemini API Error (${response.code}): $responseString"))
+                return Result.failure(Exception("Gemini API Error ($modelName ${response.code}): $responseString"))
             }
 
             val jsonResponse = JSONObject(responseString)
@@ -116,6 +142,73 @@ class GeminiService(private val context: Context) {
             }
 
             return Result.failure(Exception("No response content from Gemini."))
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
+    }
+
+    private fun queryModelAudio(
+        modelName: String,
+        apiKey: String,
+        base64Audio: String,
+        mimeType: String,
+        prompt: String
+    ): Result<String> {
+        try {
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+
+            val jsonBody = JSONObject().apply {
+                val contents = JSONArray().apply {
+                    val contentObj = JSONObject().apply {
+                        val parts = JSONArray().apply {
+                            val audioPart = JSONObject().apply {
+                                val inlineData = JSONObject().apply {
+                                    put("mime_type", mimeType)
+                                    put("data", base64Audio)
+                                }
+                                put("inline_data", inlineData)
+                            }
+                            val textPart = JSONObject().apply {
+                                put("text", prompt)
+                            }
+                            put(audioPart)
+                            put(textPart)
+                        }
+                        put("parts", parts)
+                    }
+                    put(contentObj)
+                }
+                put("contents", contents)
+            }
+
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val requestBody = jsonBody.toString().toRequestBody(mediaType)
+
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .build()
+
+            val response = client.newCall(request).execute()
+            val responseString = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                return Result.failure(Exception("Gemini Audio Error ($modelName ${response.code}): $responseString"))
+            }
+
+            val jsonResponse = JSONObject(responseString)
+            val candidates = jsonResponse.optJSONArray("candidates")
+            if (candidates != null && candidates.length() > 0) {
+                val firstCandidate = candidates.getJSONObject(0)
+                val content = firstCandidate.optJSONObject("content")
+                val parts = content?.optJSONArray("parts")
+                if (parts != null && parts.length() > 0) {
+                    val text = parts.getJSONObject(0).optString("text", "")
+                    return Result.success(text.trim())
+                }
+            }
+
+            return Result.failure(Exception("No response content from Gemini audio."))
         } catch (e: Exception) {
             return Result.failure(e)
         }

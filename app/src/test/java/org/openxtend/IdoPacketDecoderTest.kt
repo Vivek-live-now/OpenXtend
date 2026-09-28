@@ -186,5 +186,29 @@ class IdoPacketDecoderTest {
         assertEquals(20, frames[0].size)
         assertEquals(0x13.toByte(), frames[0][0])
         assertEquals(0x01.toByte(), frames[0][1])
+
+        val alexaListening = org.openxtend.ble.IdoPacketEncoder.buildAlexaState(0x01)
+        assertEquals(4, alexaListening.size)
+        assertEquals(0x13.toByte(), alexaListening[0])
+        assertEquals(0x02.toByte(), alexaListening[1])
+        assertEquals(0x01.toByte(), alexaListening[2])
+
+        val alexaThinking = org.openxtend.ble.IdoPacketEncoder.buildAlexaState(0x02)
+        assertEquals(0x02.toByte(), alexaThinking[2])
+    }
+
+    @Test
+    fun testWrapPcmToWav() {
+        val dummyPcm = ByteArray(3200) // 100ms at 16kHz 16-bit
+        val wav = org.openxtend.util.AudioUtils.wrapPcmToWav(dummyPcm, sampleRate = 16000)
+        assertEquals(3244, wav.size)
+        assertEquals('R'.code.toByte(), wav[0])
+        assertEquals('I'.code.toByte(), wav[1])
+        assertEquals('F'.code.toByte(), wav[2])
+        assertEquals('F'.code.toByte(), wav[3])
+        assertEquals('W'.code.toByte(), wav[8])
+        assertEquals('A'.code.toByte(), wav[9])
+        assertEquals('V'.code.toByte(), wav[10])
+        assertEquals('E'.code.toByte(), wav[11])
     }
 }

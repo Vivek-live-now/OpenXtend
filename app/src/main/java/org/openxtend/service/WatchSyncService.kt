@@ -74,6 +74,34 @@ class WatchSyncService : Service() {
                 }
             }
         }
+
+        // Automatic Watch Microphone -> Gemini AI Voice Assistant Pipeline
+        val geminiService = org.openxtend.ai.GeminiService(applicationContext)
+        bleManager.onWatchAudioReceived = { audioBytes ->
+            serviceScope.launch {
+                try {
+                    android.util.Log.i("WatchSyncService", "Watch mic audio received (${audioBytes.size} B). Processing with Gemini...")
+                    val replyResult = if (audioBytes.isNotEmpty()) {
+                        val wav = org.openxtend.util.AudioUtils.wrapPcmToWav(audioBytes, sampleRate = 16000)
+                        geminiService.askGeminiAudio(wav, "audio/wav")
+                    } else {
+                        geminiService.askGemini("The user pressed the voice assistant button on their boAt Xtend watch. Give a friendly 10-word tactical prompt.")
+                    }
+
+                    replyResult.onSuccess { answer ->
+                        android.util.Log.i("WatchSyncService", "Gemini answered for watch: $answer")
+                        bleManager.pushVoiceResponse(answer)
+                        bleManager.enqueueCommand(org.openxtend.ble.IdoPacketEncoder.buildAlexaState(0x00)) // Idle / Display answer
+                    }.onFailure { err ->
+                        android.util.Log.e("WatchSyncService", "Gemini error: ${err.message}")
+                        bleManager.pushVoiceResponse("AI Error: ${err.message?.take(28)}")
+                        bleManager.enqueueCommand(org.openxtend.ble.IdoPacketEncoder.buildAlexaState(0x03)) // Error state
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("WatchSyncService", "Exception in watch voice processing", e)
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
