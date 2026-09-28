@@ -211,4 +211,37 @@ class IdoPacketDecoderTest {
         assertEquals('V'.code.toByte(), wav[10])
         assertEquals('E'.code.toByte(), wav[11])
     }
+
+    @Test
+    fun testDecodeAlexaConfigAckAndVoiceTrigger() {
+        // 0x12 0x24 ACK from watch must decode as AlexaConfigAck, NEVER VoiceAssistantTriggered
+        val ack24 = byteArrayOf(0x12, 0x24, 0x00, 0x00)
+        val res24 = IdoPacketDecoder.decodePacket(ack24, WatchInfo())
+        assertTrue(res24 is IdoPacketDecoder.DecodeResult.AlexaConfigAck)
+        assertEquals(0x24, (res24 as IdoPacketDecoder.DecodeResult.AlexaConfigAck).key)
+
+        // 0x12 0x21 ACK from watch must decode as AlexaConfigAck
+        val ack21 = byteArrayOf(0x12, 0x21, 0x00, 0x00)
+        val res21 = IdoPacketDecoder.decodePacket(ack21, WatchInfo())
+        assertTrue(res21 is IdoPacketDecoder.DecodeResult.AlexaConfigAck)
+        assertEquals(0x21, (res21 as IdoPacketDecoder.DecodeResult.AlexaConfigAck).key)
+
+        // 0x13 0x01 UI ACK must decode as AlexaConfigAck
+        val ack13 = byteArrayOf(0x13, 0x01, 0x00)
+        val res13 = IdoPacketDecoder.decodePacket(ack13, WatchInfo())
+        assertTrue(res13 is IdoPacketDecoder.DecodeResult.AlexaConfigAck)
+        assertEquals(0x01, (res13 as IdoPacketDecoder.DecodeResult.AlexaConfigAck).key)
+
+        // 0x12 0x01 (user mic start) must decode as VoiceAssistantTriggered
+        val micStart = byteArrayOf(0x12, 0x01, 0x01)
+        val resMicStart = IdoPacketDecoder.decodePacket(micStart, WatchInfo())
+        assertTrue(resMicStart is IdoPacketDecoder.DecodeResult.VoiceAssistantTriggered)
+        assertEquals(0x01, (resMicStart as IdoPacketDecoder.DecodeResult.VoiceAssistantTriggered).key)
+
+        // 0x12 0x03 (user mic stop) must decode as VoiceAssistantTriggered
+        val micStop = byteArrayOf(0x12, 0x03, 0x00)
+        val resMicStop = IdoPacketDecoder.decodePacket(micStop, WatchInfo())
+        assertTrue(resMicStop is IdoPacketDecoder.DecodeResult.VoiceAssistantTriggered)
+        assertEquals(0x03, (resMicStop as IdoPacketDecoder.DecodeResult.VoiceAssistantTriggered).key)
+    }
 }

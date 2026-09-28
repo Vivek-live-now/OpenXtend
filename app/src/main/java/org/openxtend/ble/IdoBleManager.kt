@@ -365,6 +365,9 @@ class IdoBleManager(private val context: Context) {
                 enqueueCommand(IdoPacketEncoder.buildGetLiveActivity())
                 enqueueCommand(IdoPacketEncoder.buildGetHeartRate())
             }
+            is IdoPacketDecoder.DecodeResult.AlexaConfigAck -> {
+                Log.d(TAG, "Watch acknowledged Alexa config/state: 0x${"%02X".format(result.key)}")
+            }
             is IdoPacketDecoder.DecodeResult.VoiceAssistantTriggered -> {
                 val key = result.key
                 val payload = result.payload
@@ -381,6 +384,7 @@ class IdoBleManager(private val context: Context) {
                         isRecordingFromWatch = true
                         _watchInfo.value = current.copy(lastSyncStatus = "Watch Mic: Listening...")
                         onWatchVoiceStatus?.invoke("Listening to watch microphone...")
+                        onVoiceAssistantTriggered?.invoke(key, payload)
                     }
                     0x02 -> { // Voice audio chunk on normal pipe
                         enqueueCommand(IdoPacketEncoder.buildAlexaVoiceAck(0x02))
@@ -404,18 +408,12 @@ class IdoBleManager(private val context: Context) {
                         }
                         Log.i(TAG, "Total audio captured from watch mic: ${audioBytes.size} bytes")
                         onWatchAudioReceived?.invoke(audioBytes)
-                    }
-                    0x24 -> {
-                        enqueueCommand(IdoPacketEncoder.buildSetAlexaVoiceState(true))
-                    }
-                    0x21 -> {
-                        enqueueCommand(IdoPacketEncoder.buildSetAlexaReady())
+                        onVoiceAssistantTriggered?.invoke(key, payload)
                     }
                     else -> {
-                        enqueueCommand(IdoPacketEncoder.buildAlexaVoiceAck(key))
+                        Log.d(TAG, "Ignored watch voice event key: 0x${"%02X".format(key)}")
                     }
                 }
-                onVoiceAssistantTriggered?.invoke(result.key, result.payload)
             }
             else -> {}
         }
@@ -553,21 +551,13 @@ class IdoBleManager(private val context: Context) {
     }
 
     /**
-     * Push AI / Voice assistant response to the watch.
-     * Uses IDO Alexa protocol frames (0x13 0x01) to beam text to the watch voice assistant screen.
-     * Also pushes a generic system notification (typeId = 1, NEVER WhatsApp typeId = 8!)
+     * Push AI / Voice assistant response to the watch screen.
+     * Uses IDO Alexa protocol frames (0x13 0x01) to beam text directly to the watch voice assistant screen.
+     * Does NOT push system notifications to prevent opening the watch notification shade.
      */
     fun pushVoiceResponse(replyText: String) {
-        // 1. Send IDO Alexa voice reply frames (0x13 0x01)
         val voiceFrames = IdoPacketEncoder.buildVoiceAssistantResponse(replyText)
         voiceFrames.forEach { enqueueCommand(it) }
-
-        // 2. Push as generic system notification (typeId = 1) - NEVER WhatsApp (typeId = 8)!
-        pushNotification(
-            typeId = 1,
-            sender = "Gemini AI",
-            message = replyText
-        )
     }
 
     fun setContinuousHeartRate(enabled: Boolean) {

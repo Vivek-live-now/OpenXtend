@@ -65,8 +65,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
             syncService?.bleManager?.onVoiceAssistantTriggered = { key, _ ->
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Watch Voice Assistant triggered! (0x${"%02X".format(key)})", Toast.LENGTH_SHORT).show()
+                if (key == 0x01) {
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "Watch Microphone active - Speak now", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             syncService?.bleManager?.onStatusMessage = { msg ->

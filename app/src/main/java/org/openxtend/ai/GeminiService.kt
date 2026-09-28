@@ -19,7 +19,14 @@ class GeminiService(private val context: Context) {
         private const val TAG = "GeminiService"
         private const val PREFS_NAME = "openxtend_gemini_prefs"
         private const val KEY_API_KEY = "gemini_api_key"
-        private val MODEL_CANDIDATES = listOf("gemini-flash-latest", "gemini-3.8-flash", "gemini-3.5-flash")
+        private val MODEL_CANDIDATES = listOf(
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-flash-latest",
+            "gemini-2.5-flash",
+            "gemini-3.8-flash",
+            "gemini-3.5-flash"
+        )
     }
 
     private val client = OkHttpClient.Builder()

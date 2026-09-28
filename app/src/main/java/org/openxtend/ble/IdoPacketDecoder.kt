@@ -10,6 +10,7 @@ object IdoPacketDecoder {
         data class LiveDataUpdate(val steps: Int, val heartRate: Int) : DecodeResult()
         data class BindResult(val success: Boolean) : DecodeResult()
         data class TimeSyncAck(val success: Boolean) : DecodeResult()
+        data class AlexaConfigAck(val key: Int) : DecodeResult()
         data class VoiceAssistantTriggered(val key: Int, val payload: ByteArray) : DecodeResult()
         data class DataUpdateNotify(val payload: ByteArray) : DecodeResult()
         object FindPhoneTriggered : DecodeResult()
@@ -143,8 +144,14 @@ object IdoPacketDecoder {
                     return DecodeResult.DataUpdateNotify(data)
                 }
             }
-            0x12, 0x13 -> { // Voice Assistant / Alexa protocol events from watch
-                return DecodeResult.VoiceAssistantTriggered(key, data)
+            0x12 -> { // Voice Assistant / Alexa protocol events or config ACKs from watch
+                when (key) {
+                    0x01, 0x02, 0x03 -> return DecodeResult.VoiceAssistantTriggered(key, data)
+                    else -> return DecodeResult.AlexaConfigAck(key)
+                }
+            }
+            0x13 -> { // UI protocol ACKs from watch
+                return DecodeResult.AlexaConfigAck(key)
             }
         }
 
