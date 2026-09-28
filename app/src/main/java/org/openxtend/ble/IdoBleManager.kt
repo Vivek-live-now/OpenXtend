@@ -235,6 +235,7 @@ class IdoBleManager(private val context: Context) {
                 if (_connectionStatus.value == ConnectionStatus.CONNECTED) {
                     enqueueCommand(IdoPacketEncoder.buildGetLiveData())
                     enqueueCommand(IdoPacketEncoder.buildGetLiveActivity())
+                    enqueueCommand(IdoPacketEncoder.buildGetHeartRate())
                 }
             }
         }
@@ -386,7 +387,7 @@ class IdoBleManager(private val context: Context) {
     }
 
     /**
-     * Sync routine: Time, device info, battery, steps, live activity
+     * Sync routine: Time, continuous HR, weather switch, device info, battery, steps, live activity, heart rate
      */
     fun syncWatch() {
         _watchInfo.value = _watchInfo.value.copy(
@@ -394,10 +395,13 @@ class IdoBleManager(private val context: Context) {
             lastSyncStatus = "Syncing..."
         )
         enqueueCommand(IdoPacketEncoder.buildSetTime())
+        enqueueCommand(IdoPacketEncoder.buildSetContinuousHeartRate(true))
+        enqueueCommand(IdoPacketEncoder.buildSetWeatherSwitch(true))
         enqueueCommand(IdoPacketEncoder.buildGetDeviceInfo())
         enqueueCommand(IdoPacketEncoder.buildGetBatteryInfo())
         enqueueCommand(IdoPacketEncoder.buildGetLiveActivity())
         enqueueCommand(IdoPacketEncoder.buildGetLiveData())
+        enqueueCommand(IdoPacketEncoder.buildGetHeartRate())
     }
 
     fun setRaiseToWake(enabled: Boolean) {
@@ -406,6 +410,21 @@ class IdoBleManager(private val context: Context) {
 
     fun setMusicControl(enabled: Boolean) {
         enqueueCommand(IdoPacketEncoder.buildSetMusicControl(enabled))
+    }
+
+    fun setWeatherSwitch(enabled: Boolean) {
+        enqueueCommand(IdoPacketEncoder.buildSetWeatherSwitch(enabled))
+    }
+
+    fun pushWeather(tempC: Int, minC: Int, maxC: Int, weatherType: Int = 1, humidity: Int = 50) {
+        enqueueCommand(IdoPacketEncoder.buildWeatherPacket(tempC, minC, maxC, weatherType, humidity))
+        _watchInfo.value = _watchInfo.value.copy(
+            lastWeatherSummary = "$tempC°C (H:$maxC° L:$minC°)"
+        )
+    }
+
+    fun setContinuousHeartRate(enabled: Boolean) {
+        enqueueCommand(IdoPacketEncoder.buildSetContinuousHeartRate(enabled))
     }
 
     fun findPhone() {

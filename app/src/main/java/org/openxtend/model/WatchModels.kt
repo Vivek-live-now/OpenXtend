@@ -37,12 +37,14 @@ data class WatchInfo(
     val liveSteps: Int = 0,
     val liveHeartRate: Int = 0,
     val lastSyncEpoch: Long = 0L,
-    val lastSyncStatus: String = ""
+    val lastSyncStatus: String = "",
+    val lastWeatherSummary: String = ""
 )
 
 data class WatchSettings(
     val raiseToWake: Boolean = true,
     val musicControl: Boolean = true,
+    val weatherEnabled: Boolean = true,
     val doNotDisturb: Boolean = false,
     val enabledNotificationApps: Set<NotificationApp> = setOf(
         NotificationApp.WHATSAPP,

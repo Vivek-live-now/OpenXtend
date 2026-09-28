@@ -22,8 +22,11 @@ import org.openxtend.ui.theme.*
 fun ControlsScreen(
     isConnected: Boolean,
     settings: WatchSettings,
+    weatherSummary: String = "",
     onToggleRaiseToWake: (Boolean) -> Unit,
     onToggleMusicControl: (Boolean) -> Unit,
+    onToggleWeather: (Boolean) -> Unit,
+    onPushWeather: () -> Unit,
     onRebootWatch: () -> Unit
 ) {
     var showRebootDialog by remember { mutableStateOf(false) }
@@ -90,6 +93,56 @@ fun ControlsScreen(
                     checked = settings.musicControl,
                     onCheckedChange = onToggleMusicControl
                 )
+            }
+        }
+
+        // Weather Configuration Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CardBackground),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "WEATHER & FORECAST",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                ControlSwitchRow(
+                    icon = Icons.Default.WbSunny,
+                    title = "Weather on Watch",
+                    subtitle = "Enable real-time weather display on boAt Xtend",
+                    checked = settings.weatherEnabled,
+                    onCheckedChange = onToggleWeather
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = onPushWeather,
+                    enabled = isConnected && settings.weatherEnabled,
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentCyan),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.CloudSync, contentDescription = null, tint = DarkBackground)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Push Current Weather Now", color = DarkBackground, fontWeight = FontWeight.Bold)
+                }
+
+                if (weatherSummary.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Status: $weatherSummary",
+                        color = AccentCyan,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             }
         }
 

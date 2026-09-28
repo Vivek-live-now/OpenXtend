@@ -27,6 +27,8 @@ import org.openxtend.model.NotificationApp
 import org.openxtend.model.WatchInfo
 import org.openxtend.model.WatchSettings
 import org.openxtend.service.WatchSyncService
+import org.openxtend.weather.WeatherService
+import kotlinx.coroutines.launch
 import org.openxtend.ui.screens.ControlsScreen
 import org.openxtend.ui.screens.DashboardScreen
 import org.openxtend.ui.screens.GeminiScreen
@@ -131,6 +133,9 @@ class MainActivity : ComponentActivity() {
     private fun MainContent() {
         var currentTab by remember { mutableStateOf(MainTab.DASHBOARD) }
         var settings by remember { mutableStateOf(WatchSettings()) }
+        val weatherService = remember { WeatherService(applicationContext) }
+        var weatherSummary by remember { mutableStateOf(weatherService.getLastWeatherSummary()) }
+        val coroutineScope = rememberCoroutineScope()
 
         val connectionStatus by (syncService?.bleManager?.connectionStatus?.collectAsState()
             ?: remember { mutableStateOf(ConnectionStatus.DISCONNECTED) })
@@ -191,6 +196,7 @@ class MainActivity : ComponentActivity() {
                     MainTab.CONTROLS -> ControlsScreen(
                         isConnected = (connectionStatus == ConnectionStatus.CONNECTED),
                         settings = settings,
+                        weatherSummary = if (watchInfo.lastWeatherSummary.isNotBlank()) watchInfo.lastWeatherSummary else weatherSummary,
                         onToggleRaiseToWake = { enabled ->
                             settings = settings.copy(raiseToWake = enabled)
                             syncService?.bleManager?.setRaiseToWake(enabled)
@@ -198,6 +204,25 @@ class MainActivity : ComponentActivity() {
                         onToggleMusicControl = { enabled ->
                             settings = settings.copy(musicControl = enabled)
                             syncService?.bleManager?.setMusicControl(enabled)
+                        },
+                        onToggleWeather = { enabled ->
+                            settings = settings.copy(weatherEnabled = enabled)
+                            weatherService.setWeatherEnabled(enabled)
+                            syncService?.bleManager?.setWeatherSwitch(enabled)
+                        },
+                        onPushWeather = {
+                            val ble = syncService?.bleManager
+                            if (ble != null) {
+                                coroutineScope.launch {
+                                    val res = weatherService.syncWeatherToWatch(ble)
+                                    if (res.isSuccess) {
+                                        weatherSummary = res.getOrDefault("")
+                                        Toast.makeText(this@MainActivity, "Weather synced: $weatherSummary", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "Failed to sync weather", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
                         },
                         onRebootWatch = {
                             syncService?.bleManager?.rebootWatch()

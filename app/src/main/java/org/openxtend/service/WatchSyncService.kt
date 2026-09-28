@@ -57,6 +57,21 @@ class WatchSyncService : Service() {
                 }
                 val notification = buildForegroundNotification(statusText)
                 val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                manager.notify(NOTIFICATION_ID, notification)
+
+                if (status == ConnectionStatus.CONNECTED) {
+                    serviceScope.launch {
+                        try {
+                            val weatherService = org.openxtend.weather.WeatherService(applicationContext)
+                            if (weatherService.isWeatherEnabled()) {
+                                kotlinx.coroutines.delay(1500)
+                                weatherService.syncWeatherToWatch(bleManager)
+                            }
+                        } catch (e: Exception) {
+                            // Non-fatal
+                        }
+                    }
+                }
             }
         }
     }

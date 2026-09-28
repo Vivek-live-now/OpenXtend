@@ -60,44 +60,42 @@ object IdoPacketDecoder {
                         }
                     }
                     0x07 -> { // Real-time Heart Rate reply
-                        if (data.size >= 3) {
-                            val hr = data[2].toInt() and 0xFF
-                            if (hr in 30..220) {
-                                return DecodeResult.LiveDataUpdate(
-                                    steps = current.liveSteps,
-                                    heartRate = hr
-                                )
-                            }
+                        val hr = when {
+                            data.size >= 3 && (data[2].toInt() and 0xFF) in 30..220 -> data[2].toInt() and 0xFF
+                            data.size >= 4 && (data[3].toInt() and 0xFF) in 30..220 -> data[3].toInt() and 0xFF
+                            else -> 0
+                        }
+                        if (hr in 30..220) {
+                            return DecodeResult.LiveDataUpdate(
+                                steps = current.liveSteps,
+                                heartRate = hr
+                            )
                         }
                     }
                     0x08 -> { // Activity reply
+                        // Format: 02 08 [steps 4B LE] [calories 4B LE] [distance 4B LE]
                         if (data.size >= 6) {
                             val steps = (data[2].toInt() and 0xFF) or
                                     ((data[3].toInt() and 0xFF) shl 8) or
                                     ((data[4].toInt() and 0xFF) shl 16) or
                                     ((data[5].toInt() and 0xFF) shl 24)
-                            val hrCandidate = if (data.size >= 7) data[6].toInt() and 0xFF else 0
-                            val finalHr = if (hrCandidate in 30..220) hrCandidate else current.liveHeartRate
+                            // Bytes 6..9 are calories, NOT heart rate.
+                            // Preserve current live heart rate rather than overwriting with calories.
                             return DecodeResult.LiveDataUpdate(
                                 steps = steps,
-                                heartRate = finalHr
+                                heartRate = current.liveHeartRate
                             )
                         }
                     }
                     0xA0 -> { // Live Data reply
-                        // 02 A0 [steps 4B LE] [cal 4B LE] [distance 4B LE] [hr 1B]
+                        // Format: 02 A0 [steps 4B LE] [cal 4B LE] [distance 4B LE] [hr 1B at index 14]
                         if (data.size >= 6) {
                             val steps = (data[2].toInt() and 0xFF) or
                                     ((data[3].toInt() and 0xFF) shl 8) or
                                     ((data[4].toInt() and 0xFF) shl 16) or
                                     ((data[5].toInt() and 0xFF) shl 24)
-                            val hrCandidate1 = if (data.size >= 15) data[14].toInt() and 0xFF else 0
-                            val hrCandidate2 = if (data.size >= 7) data[6].toInt() and 0xFF else 0
-                            val finalHr = when {
-                                hrCandidate1 in 30..220 -> hrCandidate1
-                                hrCandidate2 in 30..220 -> hrCandidate2
-                                else -> current.liveHeartRate
-                            }
+                            val hrCandidate = if (data.size >= 15) data[14].toInt() and 0xFF else 0
+                            val finalHr = if (hrCandidate in 30..220) hrCandidate else current.liveHeartRate
 
                             return DecodeResult.LiveDataUpdate(
                                 steps = steps,

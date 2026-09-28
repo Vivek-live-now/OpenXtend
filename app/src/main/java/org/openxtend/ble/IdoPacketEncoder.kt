@@ -206,4 +206,78 @@ object IdoPacketEncoder {
 
         return frames
     }
+
+    /**
+     * GET 0x02 0x07: Query real-time heart rate from PPG sensor
+     */
+    fun buildGetHeartRate(): ByteArray {
+        return byteArrayOf(0x02, 0x07)
+    }
+
+    /**
+     * SET 0x03 0x25: Continuous Heart Rate PPG sensor control (8 bytes)
+     * Activates continuous optical PPG tracking on the back of the watch.
+     * 0xAA = Enabled (continuous 5 min monitoring 00:00 - 23:59), 0x55 = Disabled
+     */
+    fun buildSetContinuousHeartRate(enabled: Boolean = true): ByteArray {
+        val switchVal = if (enabled) 0xAA.toByte() else 0x55.toByte()
+        return byteArrayOf(
+            0x03, 0x25,
+            switchVal,
+            0x05, // 5 min sampling interval
+            0x00, 0x00, // start 00:00
+            0x17, 0x3B  // end 23:59
+        )
+    }
+
+    /**
+     * SET 0x03 0x2D: Weather Display Switch (6 bytes)
+     * Activates the weather screen / widget on the boAt Xtend.
+     * 0xAA = Enabled, 0x55 = Disabled
+     */
+    fun buildSetWeatherSwitch(enabled: Boolean = true): ByteArray {
+        val switchVal = if (enabled) 0xAA.toByte() else 0x55.toByte()
+        return byteArrayOf(0x03, 0x2D, switchVal, 0x00, 0x00, 0x00)
+    }
+
+    /**
+     * APP_WEATHER (0x0A 0x01): Push today's weather data to watch (20 bytes)
+     * Format:
+     * 0x0A, 0x01, [year_lo], [year_hi], [month], [day], [hour], [weather_type],
+     * [current_temp_c], [max_temp_c], [min_temp_c], [humidity_pct], [uv_index], [aqi],
+     * 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+     */
+    fun buildWeatherPacket(
+        currentTempC: Int,
+        minTempC: Int,
+        maxTempC: Int,
+        weatherType: Int = 1, // 1: Sunny, 2: Cloudy, 3: Overcast, 4: Rain, 5: Snow, 6: Storm, 7: Fog
+        humidity: Int = 50,
+        uvIndex: Int = 3,
+        aqi: Int = 50,
+        calendar: Calendar = Calendar.getInstance()
+    ): ByteArray {
+        val year = calendar.get(Calendar.YEAR)
+        val month = (calendar.get(Calendar.MONTH) + 1).toByte()
+        val day = calendar.get(Calendar.DAY_OF_MONTH).toByte()
+        val hour = calendar.get(Calendar.HOUR_OF_DAY).toByte()
+
+        val packet = ByteArray(20)
+        packet[0] = 0x0A.toByte() // PROTOCOL_CMD_WEATHER
+        packet[1] = 0x01.toByte() // KEY_WEATHER_TODAY
+        packet[2] = (year and 0xFF).toByte()
+        packet[3] = ((year shr 8) and 0xFF).toByte()
+        packet[4] = month
+        packet[5] = day
+        packet[6] = hour
+        packet[7] = weatherType.toByte()
+        packet[8] = (currentTempC and 0xFF).toByte()
+        packet[9] = (maxTempC and 0xFF).toByte()
+        packet[10] = (minTempC and 0xFF).toByte()
+        packet[11] = humidity.coerceIn(0, 100).toByte()
+        packet[12] = uvIndex.coerceIn(0, 15).toByte()
+        packet[13] = (aqi and 0xFF).toByte()
+        // bytes 14..19 are 0x00 padding
+        return packet
+    }
 }

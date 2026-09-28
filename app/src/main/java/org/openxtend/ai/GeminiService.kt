@@ -16,7 +16,8 @@ class GeminiService(private val context: Context) {
     companion object {
         private const val PREFS_NAME = "openxtend_gemini_prefs"
         private const val KEY_API_KEY = "gemini_api_key"
-        private const val GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        private const val PRIMARY_MODEL = "gemini-3.8-flash"
+        private const val FALLBACK_MODEL = "gemini-2.5-flash"
     }
 
     private val client = OkHttpClient.Builder()
@@ -42,12 +43,31 @@ class GeminiService(private val context: Context) {
 
         if (apiKey.startsWith("gen-lang-client", ignoreCase = true)) {
             return@withContext Result.failure(
-                Exception("'$apiKey' is a Google Cloud Project ID, NOT an API key!\n\nPlease open https://aistudio.google.com/apikey and copy your Gemini API key (it begins with 'AIzaSy...').")
+                Exception("'$apiKey' is a Google Cloud Project ID, NOT an API key!\n\nPlease open https://aistudio.google.com/apikey and copy your Gemini API key.")
             )
         }
 
+        // Try gemini-3.8-flash first
+        val firstAttempt = queryModel(PRIMARY_MODEL, apiKey, prompt)
+        if (firstAttempt.isSuccess) {
+            return@withContext firstAttempt
+        }
+
+        val err = firstAttempt.exceptionOrNull()
+        if (err != null && (err.message?.contains("404") == true || err.message?.contains("not found") == true)) {
+            // Fallback to gemini-2.5-flash
+            val fallbackAttempt = queryModel(FALLBACK_MODEL, apiKey, prompt)
+            if (fallbackAttempt.isSuccess) {
+                return@withContext fallbackAttempt
+            }
+        }
+
+        return@withContext firstAttempt
+    }
+
+    private fun queryModel(modelName: String, apiKey: String, prompt: String): Result<String> {
         try {
-            val url = "$GEMINI_ENDPOINT?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
 
             // System prompt tailored for 1.69" smartwatch screen readability
             val systemInstruction = "You are a concise tactical AI assistant for a smartwatch. Provide answers under 40 words, clear, high-contrast, easily readable on wrist. Prompt: "
@@ -80,7 +100,7 @@ class GeminiService(private val context: Context) {
             val responseString = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("Gemini API Error (${response.code}): $responseString"))
+                return Result.failure(Exception("Gemini API Error (${response.code}): $responseString"))
             }
 
             val jsonResponse = JSONObject(responseString)
@@ -91,13 +111,13 @@ class GeminiService(private val context: Context) {
                 val parts = content?.optJSONArray("parts")
                 if (parts != null && parts.length() > 0) {
                     val text = parts.getJSONObject(0).optString("text", "")
-                    return@withContext Result.success(text.trim())
+                    return Result.success(text.trim())
                 }
             }
 
-            return@withContext Result.failure(Exception("No response content from Gemini."))
+            return Result.failure(Exception("No response content from Gemini."))
         } catch (e: Exception) {
-            return@withContext Result.failure(e)
+            return Result.failure(e)
         }
     }
 }

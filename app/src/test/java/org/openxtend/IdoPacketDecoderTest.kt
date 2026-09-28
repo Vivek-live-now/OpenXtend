@@ -92,11 +92,30 @@ class IdoPacketDecoderTest {
     @Test
     fun testDecodeActivitySteps() {
         // Steps = 2500 = 0x09C4 -> low 0xC4, high 0x09
+        // Bytes 6..9 are calories (80 kcal), which must NOT overwrite liveHeartRate
         val mockData = byteArrayOf(0x02, 0x08, 0xC4.toByte(), 0x09, 0x00, 0x00, 80)
-        val result = IdoPacketDecoder.decodePacket(mockData, WatchInfo())
+        val result = IdoPacketDecoder.decodePacket(mockData, WatchInfo(liveHeartRate = 72))
         assertTrue(result is IdoPacketDecoder.DecodeResult.LiveDataUpdate)
         val update = result as IdoPacketDecoder.DecodeResult.LiveDataUpdate
         assertEquals(2500, update.steps)
-        assertEquals(80, update.heartRate)
+        assertEquals(72, update.heartRate)
+    }
+
+    @Test
+    fun testDecodeLiveDataSeparatesCaloriesAndHeartRate() {
+        // Mock packet: 02 A0 [steps 4B LE = 1000] [cal 4B LE = 95 kcal] [dist 4B LE] [hr 1B at index 14 = 76 bpm]
+        val mockData = ByteArray(16)
+        mockData[0] = 0x02
+        mockData[1] = 0xA0.toByte()
+        mockData[2] = 0xE8.toByte() // 1000 steps = 0x03E8
+        mockData[3] = 0x03
+        mockData[6] = 95 // 95 kcal (must NOT be treated as HR!)
+        mockData[14] = 76 // 76 bpm real heart rate
+
+        val result = IdoPacketDecoder.decodePacket(mockData, WatchInfo())
+        assertTrue(result is IdoPacketDecoder.DecodeResult.LiveDataUpdate)
+        val update = result as IdoPacketDecoder.DecodeResult.LiveDataUpdate
+        assertEquals(1000, update.steps)
+        assertEquals(76, update.heartRate)
     }
 }

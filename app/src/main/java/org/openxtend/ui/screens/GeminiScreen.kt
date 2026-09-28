@@ -70,7 +70,7 @@ fun GeminiScreen(
                     border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(AccentCyan))
                 ) {
                     Text(
-                        text = "AI 1.5 FLASH",
+                        text = "GEMINI 3.8 FLASH",
                         color = AccentCyan,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -105,13 +105,13 @@ fun GeminiScreen(
                             isApiKeySaved = false
                         },
                         label = { Text("Gemini API Key") },
-                        placeholder = { Text("AIzaSy...") },
+                        placeholder = { Text("Paste API key from AI Studio...") },
                         singleLine = true,
                         isError = apiKey.startsWith("gen-lang-client", ignoreCase = true),
                         supportingText = {
                             if (apiKey.startsWith("gen-lang-client", ignoreCase = true)) {
                                 Text(
-                                    "⚠️ This is a Project ID. Your API Key starts with 'AIzaSy' from aistudio.google.com/apikey",
+                                    "⚠️ This is a Project ID. Enter your API Key from aistudio.google.com/apikey",
                                     color = AccentRed,
                                     fontSize = 11.sp
                                 )
