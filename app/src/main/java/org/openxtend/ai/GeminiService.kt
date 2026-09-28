@@ -40,6 +40,12 @@ class GeminiService(private val context: Context) {
             return@withContext Result.failure(Exception("Gemini API key is not configured. Enter your key in settings."))
         }
 
+        if (apiKey.startsWith("gen-lang-client", ignoreCase = true)) {
+            return@withContext Result.failure(
+                Exception("'$apiKey' is a Google Cloud Project ID, NOT an API key!\n\nPlease open https://aistudio.google.com/apikey and copy your Gemini API key (it begins with 'AIzaSy...').")
+            )
+        }
+
         try {
             val url = "$GEMINI_ENDPOINT?key=$apiKey"
 

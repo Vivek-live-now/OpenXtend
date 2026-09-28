@@ -59,15 +59,28 @@ object IdoPacketDecoder {
                             )
                         }
                     }
+                    0x07 -> { // Real-time Heart Rate reply
+                        if (data.size >= 3) {
+                            val hr = data[2].toInt() and 0xFF
+                            if (hr in 30..220) {
+                                return DecodeResult.LiveDataUpdate(
+                                    steps = current.liveSteps,
+                                    heartRate = hr
+                                )
+                            }
+                        }
+                    }
                     0x08 -> { // Activity reply
                         if (data.size >= 6) {
                             val steps = (data[2].toInt() and 0xFF) or
                                     ((data[3].toInt() and 0xFF) shl 8) or
                                     ((data[4].toInt() and 0xFF) shl 16) or
                                     ((data[5].toInt() and 0xFF) shl 24)
+                            val hrCandidate = if (data.size >= 7) data[6].toInt() and 0xFF else 0
+                            val finalHr = if (hrCandidate in 30..220) hrCandidate else current.liveHeartRate
                             return DecodeResult.LiveDataUpdate(
                                 steps = steps,
-                                heartRate = current.liveHeartRate
+                                heartRate = finalHr
                             )
                         }
                     }
@@ -78,11 +91,17 @@ object IdoPacketDecoder {
                                     ((data[3].toInt() and 0xFF) shl 8) or
                                     ((data[4].toInt() and 0xFF) shl 16) or
                                     ((data[5].toInt() and 0xFF) shl 24)
-                            val hr = if (data.size >= 15) data[14].toInt() and 0xFF else 0
+                            val hrCandidate1 = if (data.size >= 15) data[14].toInt() and 0xFF else 0
+                            val hrCandidate2 = if (data.size >= 7) data[6].toInt() and 0xFF else 0
+                            val finalHr = when {
+                                hrCandidate1 in 30..220 -> hrCandidate1
+                                hrCandidate2 in 30..220 -> hrCandidate2
+                                else -> current.liveHeartRate
+                            }
 
                             return DecodeResult.LiveDataUpdate(
                                 steps = steps,
-                                heartRate = hr
+                                heartRate = finalHr
                             )
                         }
                     }

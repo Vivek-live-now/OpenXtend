@@ -100,15 +100,30 @@ fun GeminiScreen(
 
                     OutlinedTextField(
                         value = apiKey,
-                        onValueChange = { apiKey = it },
+                        onValueChange = { 
+                            apiKey = it
+                            isApiKeySaved = false
+                        },
                         label = { Text("Gemini API Key") },
                         placeholder = { Text("AIzaSy...") },
                         singleLine = true,
+                        isError = apiKey.startsWith("gen-lang-client", ignoreCase = true),
+                        supportingText = {
+                            if (apiKey.startsWith("gen-lang-client", ignoreCase = true)) {
+                                Text(
+                                    "⚠️ This is a Project ID. Your API Key starts with 'AIzaSy' from aistudio.google.com/apikey",
+                                    color = AccentRed,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = AccentCyan,
                             unfocusedBorderColor = SurfaceBorder,
                             focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
+                            unfocusedTextColor = TextPrimary,
+                            errorBorderColor = AccentRed,
+                            errorTextColor = TextPrimary
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )

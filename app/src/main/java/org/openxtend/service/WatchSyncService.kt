@@ -99,7 +99,7 @@ class WatchSyncService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("OpenXtend")
             .setContentText("Status: $statusText")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_launcher)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()

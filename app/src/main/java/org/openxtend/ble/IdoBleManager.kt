@@ -138,6 +138,7 @@ class IdoBleManager(private val context: Context) {
 
     fun disconnect() {
         isManualDisconnect = true
+        stopKeepAlive()
         autoReconnectJob?.cancel()
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
@@ -151,16 +152,17 @@ class IdoBleManager(private val context: Context) {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    Log.i(TAG, "GATT Connected. Requesting MTU and discovering services...")
+                    Log.i(TAG, "GATT Connected. Establishing connection parameters and discovering services...")
                     _connectionStatus.value = ConnectionStatus.CONNECTING
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                        gatt.requestMtu(512)
-                    } else {
+                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+                    scope.launch {
+                        delay(250)
                         gatt.discoverServices()
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     Log.w(TAG, "GATT Disconnected (status: $status)")
+                    stopKeepAlive()
                     _connectionStatus.value = ConnectionStatus.DISCONNECTED
                     writeQueue.clear()
                     isWriting = false
@@ -171,11 +173,6 @@ class IdoBleManager(private val context: Context) {
                     }
                 }
             }
-        }
-
-        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            Log.d(TAG, "MTU changed to $mtu, discovering services...")
-            gatt.discoverServices()
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
@@ -199,10 +196,11 @@ class IdoBleManager(private val context: Context) {
                 Log.i(TAG, "CCCD Notifications enabled! Connected & ready.")
                 _connectionStatus.value = ConnectionStatus.CONNECTED
 
-                // Initial queries
+                // Initial queries & start continuous keepalive sync
                 scope.launch {
                     delay(300)
                     syncWatch()
+                    startKeepAlive()
                 }
             }
         }
@@ -212,11 +210,39 @@ class IdoBleManager(private val context: Context) {
             processQueue()
         }
 
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            handleIncomingPacket(value)
+        }
+
         @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             val data = characteristic.value ?: return
             handleIncomingPacket(data)
         }
+    }
+
+    private var keepAliveJob: Job? = null
+
+    private fun startKeepAlive() {
+        stopKeepAlive()
+        keepAliveJob = scope.launch {
+            while (isActive && _connectionStatus.value == ConnectionStatus.CONNECTED) {
+                delay(12000)
+                if (_connectionStatus.value == ConnectionStatus.CONNECTED) {
+                    enqueueCommand(IdoPacketEncoder.buildGetLiveData())
+                    enqueueCommand(IdoPacketEncoder.buildGetLiveActivity())
+                }
+            }
+        }
+    }
+
+    private fun stopKeepAlive() {
+        keepAliveJob?.cancel()
+        keepAliveJob = null
     }
 
     private fun scheduleAutoReconnect() {
@@ -225,12 +251,15 @@ class IdoBleManager(private val context: Context) {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val lastAddr = prefs.getString(KEY_LAST_DEVICE, null) ?: return@launch
 
-            delay(3000)
-            if (_connectionStatus.value == ConnectionStatus.DISCONNECTED && !isManualDisconnect) {
-                val device = bluetoothAdapter?.getRemoteDevice(lastAddr)
-                if (device != null) {
-                    Log.i(TAG, "Auto-reconnecting to $lastAddr...")
-                    connect(device)
+            while (isActive && _connectionStatus.value == ConnectionStatus.DISCONNECTED && !isManualDisconnect) {
+                delay(4000)
+                if (_connectionStatus.value == ConnectionStatus.DISCONNECTED && !isManualDisconnect) {
+                    val device = bluetoothAdapter?.getRemoteDevice(lastAddr)
+                    if (device != null) {
+                        Log.i(TAG, "Auto-reconnecting to $lastAddr...")
+                        connect(device)
+                        break
+                    }
                 }
             }
         }
@@ -241,12 +270,17 @@ class IdoBleManager(private val context: Context) {
         gatt.setCharacteristicNotification(characteristic, true)
         val descriptor = characteristic.getDescriptor(IdoGattAttributes.CLIENT_CHARACTERISTIC_CONFIG)
         if (descriptor != null) {
-            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            gatt.writeDescriptor(descriptor)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            } else {
+                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                gatt.writeDescriptor(descriptor)
+            }
         }
     }
 
     private fun handleIncomingPacket(data: ByteArray) {
+        Log.d(TAG, "Incoming packet (${data.size} B): ${data.joinToString(" ") { "%02X".format(it) }}")
         val result = IdoPacketDecoder.decodePacket(data, _watchInfo.value)
         val current = _watchInfo.value
 
@@ -313,9 +347,22 @@ class IdoBleManager(private val context: Context) {
             val gatt = bluetoothGatt ?: return
             val char = writeCharNormal ?: return
 
-            char.value = nextPacket
             isWriting = true
-            gatt.writeCharacteristic(char)
+            val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeCharacteristic(char, nextPacket, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothStatusCodes.SUCCESS
+            } else {
+                char.value = nextPacket
+                gatt.writeCharacteristic(char)
+            }
+
+            if (!success) {
+                Log.w(TAG, "GATT writeCharacteristic returned false, clearing write lock")
+                isWriting = false
+                scope.launch {
+                    delay(60)
+                    processQueue()
+                }
+            }
         }
     }
 

@@ -78,4 +78,25 @@ class IdoPacketDecoderTest {
         assertTrue(result is IdoPacketDecoder.DecodeResult.BindResult)
         assertTrue((result as IdoPacketDecoder.DecodeResult.BindResult).success)
     }
+
+    @Test
+    fun testDecodeHeartRateDirect() {
+        val mockData = byteArrayOf(0x02, 0x07, 72)
+        val result = IdoPacketDecoder.decodePacket(mockData, WatchInfo(liveSteps = 1000))
+        assertTrue(result is IdoPacketDecoder.DecodeResult.LiveDataUpdate)
+        val update = result as IdoPacketDecoder.DecodeResult.LiveDataUpdate
+        assertEquals(72, update.heartRate)
+        assertEquals(1000, update.steps)
+    }
+
+    @Test
+    fun testDecodeActivitySteps() {
+        // Steps = 2500 = 0x09C4 -> low 0xC4, high 0x09
+        val mockData = byteArrayOf(0x02, 0x08, 0xC4.toByte(), 0x09, 0x00, 0x00, 80)
+        val result = IdoPacketDecoder.decodePacket(mockData, WatchInfo())
+        assertTrue(result is IdoPacketDecoder.DecodeResult.LiveDataUpdate)
+        val update = result as IdoPacketDecoder.DecodeResult.LiveDataUpdate
+        assertEquals(2500, update.steps)
+        assertEquals(80, update.heartRate)
+    }
 }
