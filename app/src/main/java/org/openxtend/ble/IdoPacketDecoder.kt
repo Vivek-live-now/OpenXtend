@@ -10,6 +10,8 @@ object IdoPacketDecoder {
         data class LiveDataUpdate(val steps: Int, val heartRate: Int) : DecodeResult()
         data class BindResult(val success: Boolean) : DecodeResult()
         data class TimeSyncAck(val success: Boolean) : DecodeResult()
+        data class VoiceAssistantTriggered(val key: Int, val payload: ByteArray) : DecodeResult()
+        data class DataUpdateNotify(val payload: ByteArray) : DecodeResult()
         object FindPhoneTriggered : DecodeResult()
         object Unknown : DecodeResult()
     }
@@ -58,8 +60,20 @@ object IdoPacketDecoder {
                                 isLowPower = isLowPower
                             )
                         }
-                    }
                     0x07 -> { // Real-time Heart Rate reply
+                        val hr = when {
+                            data.size >= 3 && (data[2].toInt() and 0xFF) in 30..220 -> data[2].toInt() and 0xFF
+                            data.size >= 4 && (data[3].toInt() and 0xFF) in 30..220 -> data[3].toInt() and 0xFF
+                            else -> 0
+                        }
+                        if (hr in 30..220) {
+                            return DecodeResult.LiveDataUpdate(
+                                steps = current.liveSteps,
+                                heartRate = hr
+                            )
+                        }
+                    }
+                    0x69 -> { // Continuous HR live report
                         val hr = when {
                             data.size >= 3 && (data[2].toInt() and 0xFF) in 30..220 -> data[2].toInt() and 0xFF
                             data.size >= 4 && (data[3].toInt() and 0xFF) in 30..220 -> data[3].toInt() and 0xFF
@@ -79,23 +93,27 @@ object IdoPacketDecoder {
                                     ((data[3].toInt() and 0xFF) shl 8) or
                                     ((data[4].toInt() and 0xFF) shl 16) or
                                     ((data[5].toInt() and 0xFF) shl 24)
-                            // Bytes 6..9 are calories, NOT heart rate.
-                            // Preserve current live heart rate rather than overwriting with calories.
                             return DecodeResult.LiveDataUpdate(
                                 steps = steps,
                                 heartRate = current.liveHeartRate
                             )
                         }
                     }
-                    0xA0 -> { // Live Data reply
-                        // Format: 02 A0 [steps 4B LE] [cal 4B LE] [distance 4B LE] [hr 1B at index 14]
+                    0xA0 -> { // Live Data reply: 02 A0 [steps 4B] [uptime 4B] [dist 4B] [reserved 4B] [hr 1B at index 18]
                         if (data.size >= 6) {
                             val steps = (data[2].toInt() and 0xFF) or
                                     ((data[3].toInt() and 0xFF) shl 8) or
                                     ((data[4].toInt() and 0xFF) shl 16) or
                                     ((data[5].toInt() and 0xFF) shl 24)
-                            val hrCandidate = if (data.size >= 15) data[14].toInt() and 0xFF else 0
-                            val finalHr = if (hrCandidate in 30..220) hrCandidate else current.liveHeartRate
+
+                            // Confirmed in IDO wire capture: HR byte is at offset 18
+                            val hrFrom18 = if (data.size >= 19) data[18].toInt() and 0xFF else 0
+                            val hrFrom14 = if (data.size in 15..18) data[14].toInt() and 0xFF else 0
+                            val finalHr = when {
+                                hrFrom18 in 30..220 -> hrFrom18
+                                hrFrom14 in 30..220 -> hrFrom14
+                                else -> current.liveHeartRate
+                            }
 
                             return DecodeResult.LiveDataUpdate(
                                 steps = steps,
@@ -107,11 +125,9 @@ object IdoPacketDecoder {
             }
             0x03 -> { // SET reply or watch events
                 if (key == 0x01) {
-                    // Time sync ACK
                     return DecodeResult.TimeSyncAck(true)
                 }
                 if (key == 0x26 && data.size >= 3) {
-                    // Watch triggered "Find Phone"
                     return DecodeResult.FindPhoneTriggered
                 }
             }
@@ -120,6 +136,14 @@ object IdoPacketDecoder {
                     val success = (data.size >= 3 && data[2].toInt() == 0) || data.size >= 2
                     return DecodeResult.BindResult(success)
                 }
+            }
+            0x07 -> { // Watch initiated BLE event
+                if (key == 0x40) {
+                    return DecodeResult.DataUpdateNotify(data)
+                }
+            }
+            0x12, 0x13 -> { // Voice Assistant / Alexa protocol events from watch
+                return DecodeResult.VoiceAssistantTriggered(key, data)
             }
         }
 

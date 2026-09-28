@@ -36,6 +36,7 @@ class IdoBleManager(private val context: Context) {
     private var writeCharNormal: BluetoothGattCharacteristic? = null
     private var notifyCharNormal: BluetoothGattCharacteristic? = null
     private var writeCharBulk: BluetoothGattCharacteristic? = null
+    private var notifyCharBulk: BluetoothGattCharacteristic? = null
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
@@ -53,8 +54,9 @@ class IdoBleManager(private val context: Context) {
     private var autoReconnectJob: Job? = null
     private var isManualDisconnect = false
 
-    // Event listener for incoming events like Find Phone
+    // Event listener for incoming events like Find Phone & Voice Assistant
     var onFindPhoneRequested: (() -> Unit)? = null
+    var onVoiceAssistantTriggered: ((key: Int, payload: ByteArray) -> Unit)? = null
     var onStatusMessage: ((String) -> Unit)? = null
 
     private val scanCallback = object : ScanCallback() {
@@ -182,8 +184,9 @@ class IdoBleManager(private val context: Context) {
                     writeCharNormal = service.getCharacteristic(IdoGattAttributes.CHAR_WRITE_NORMAL)
                     notifyCharNormal = service.getCharacteristic(IdoGattAttributes.CHAR_NOTIFY_NORMAL)
                     writeCharBulk = service.getCharacteristic(IdoGattAttributes.CHAR_WRITE_BULK)
+                    notifyCharBulk = service.getCharacteristic(IdoGattAttributes.CHAR_NOTIFY_BULK)
 
-                    Log.i(TAG, "IDO Service & Characteristics discovered! Enabling notifications...")
+                    Log.i(TAG, "IDO Service & Characteristics discovered! Enabling normal notifications...")
                     enableNotifications(gatt, notifyCharNormal)
                 } else {
                     Log.e(TAG, "IDO primary service 0x0AF0 not found!")
@@ -193,14 +196,19 @@ class IdoBleManager(private val context: Context) {
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                Log.i(TAG, "CCCD Notifications enabled! Connected & ready.")
-                _connectionStatus.value = ConnectionStatus.CONNECTED
+                if (descriptor.characteristic.uuid == IdoGattAttributes.CHAR_NOTIFY_NORMAL && notifyCharBulk != null) {
+                    Log.i(TAG, "CHAR_NOTIFY_NORMAL enabled, now enabling CHAR_NOTIFY_BULK...")
+                    enableNotifications(gatt, notifyCharBulk)
+                } else {
+                    Log.i(TAG, "CCCD Notifications enabled! Connected & ready.")
+                    _connectionStatus.value = ConnectionStatus.CONNECTED
 
-                // Initial queries & start continuous keepalive sync
-                scope.launch {
-                    delay(300)
-                    syncWatch()
-                    startKeepAlive()
+                    // Initial queries & start continuous keepalive sync
+                    scope.launch {
+                        delay(300)
+                        syncWatch()
+                        startKeepAlive()
+                    }
                 }
             }
         }
@@ -328,6 +336,19 @@ class IdoBleManager(private val context: Context) {
             is IdoPacketDecoder.DecodeResult.FindPhoneTriggered -> {
                 onFindPhoneRequested?.invoke()
             }
+            is IdoPacketDecoder.DecodeResult.DataUpdateNotify -> {
+                Log.d(TAG, "Watch reported DataUpdateNotify: sending ACK and refreshing live telemetry")
+                enqueueCommand(byteArrayOf(0x07, 0x40, 0x00))
+                enqueueCommand(IdoPacketEncoder.buildGetLiveData())
+                enqueueCommand(IdoPacketEncoder.buildGetLiveActivity())
+                enqueueCommand(IdoPacketEncoder.buildGetHeartRate())
+            }
+            is IdoPacketDecoder.DecodeResult.VoiceAssistantTriggered -> {
+                Log.i(TAG, "Voice Assistant triggered on watch! Key: 0x${"%02X".format(result.key)}")
+                enqueueCommand(IdoPacketEncoder.buildAlexaVoiceAck(result.key))
+                onVoiceAssistantTriggered?.invoke(result.key, result.payload)
+                _watchInfo.value = current.copy(lastSyncStatus = "Watch Mic / Alexa Active")
+            }
             else -> {}
         }
     }
@@ -387,7 +408,7 @@ class IdoBleManager(private val context: Context) {
     }
 
     /**
-     * Sync routine: Time, continuous HR, weather switch, device info, battery, steps, live activity, heart rate
+     * Sync routine: Time, continuous HR, weather switch, Alexa ready handshake, device info, battery, steps, live activity, heart rate
      */
     fun syncWatch() {
         _watchInfo.value = _watchInfo.value.copy(
@@ -397,6 +418,8 @@ class IdoBleManager(private val context: Context) {
         enqueueCommand(IdoPacketEncoder.buildSetTime())
         enqueueCommand(IdoPacketEncoder.buildSetContinuousHeartRate(true))
         enqueueCommand(IdoPacketEncoder.buildSetWeatherSwitch(true))
+        enqueueCommand(IdoPacketEncoder.buildSetAlexaVoiceState(true))
+        enqueueCommand(IdoPacketEncoder.buildSetAlexaReady())
         enqueueCommand(IdoPacketEncoder.buildGetDeviceInfo())
         enqueueCommand(IdoPacketEncoder.buildGetBatteryInfo())
         enqueueCommand(IdoPacketEncoder.buildGetLiveActivity())
@@ -416,10 +439,66 @@ class IdoBleManager(private val context: Context) {
         enqueueCommand(IdoPacketEncoder.buildSetWeatherSwitch(enabled))
     }
 
-    fun pushWeather(tempC: Int, minC: Int, maxC: Int, weatherType: Int = 1, humidity: Int = 50) {
-        enqueueCommand(IdoPacketEncoder.buildWeatherPacket(tempC, minC, maxC, weatherType, humidity))
+    fun pushWeather(
+        tempC: Int,
+        maxC: Int,
+        minC: Int,
+        weatherType: Int = 1,
+        humidity: Int = 50,
+        cityName: String = "Delhi",
+        day1Type: Int = weatherType,
+        day1Max: Int = maxC,
+        day1Min: Int = minC,
+        day2Type: Int = weatherType,
+        day2Max: Int = maxC,
+        day2Min: Int = minC,
+        day3Type: Int = weatherType,
+        day3Max: Int = maxC,
+        day3Min: Int = minC
+    ) {
+        // Ensure watch weather switch is active
+        enqueueCommand(IdoPacketEncoder.buildSetWeatherSwitch(true))
+        // Send 18-byte weather data packet (today + 3 days forecast)
+        enqueueCommand(
+            IdoPacketEncoder.buildWeatherDataPacket(
+                currentTempC = tempC,
+                maxTempC = maxC,
+                minTempC = minC,
+                weatherType = weatherType,
+                humidity = humidity,
+                day1Type = day1Type,
+                day1Max = day1Max,
+                day1Min = day1Min,
+                day2Type = day2Type,
+                day2Max = day2Max,
+                day2Min = day2Min,
+                day3Type = day3Type,
+                day3Max = day3Max,
+                day3Min = day3Min
+            )
+        )
+        // Send 20-byte city packet required by IDO firmware to display weather
+        enqueueCommand(IdoPacketEncoder.buildWeatherCityPacket(cityName))
         _watchInfo.value = _watchInfo.value.copy(
-            lastWeatherSummary = "$tempC°C (H:$maxC° L:$minC°)"
+            lastWeatherSummary = "$cityName: $tempC°C (H:$maxC° L:$minC°)"
+        )
+    }
+
+    /**
+     * Push AI / Voice assistant response to the watch.
+     * Uses IDO Alexa protocol frames (0x13 0x01) to beam text to the watch voice assistant screen.
+     * Also pushes a generic system notification (typeId = 1, NEVER WhatsApp typeId = 8!)
+     */
+    fun pushVoiceResponse(replyText: String) {
+        // 1. Send IDO Alexa voice reply frames (0x13 0x01)
+        val voiceFrames = IdoPacketEncoder.buildVoiceAssistantResponse(replyText)
+        voiceFrames.forEach { enqueueCommand(it) }
+
+        // 2. Push as generic system notification (typeId = 1) - NEVER WhatsApp (typeId = 8)!
+        pushNotification(
+            typeId = 1,
+            sender = "Gemini AI",
+            message = replyText
         )
     }
 

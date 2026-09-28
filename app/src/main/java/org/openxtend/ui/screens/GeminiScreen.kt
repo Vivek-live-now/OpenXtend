@@ -1,5 +1,10 @@
 package org.openxtend.ui.screens
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,6 +39,31 @@ fun GeminiScreen(
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isApiKeySaved by remember { mutableStateOf(apiKey.isNotBlank()) }
+
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                prompt = spoken
+                isLoading = true
+                errorMessage = null
+                scope.launch {
+                    val queryResult = geminiService.askGemini(spoken)
+                    isLoading = false
+                    queryResult.onSuccess { reply ->
+                        lastResponse = reply
+                        if (isConnected) {
+                            onSendToWatch(reply)
+                        }
+                    }.onFailure { err ->
+                        errorMessage = err.localizedMessage ?: "Unknown error"
+                    }
+                }
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -215,6 +245,23 @@ fun GeminiScreen(
                         label = { Text("What should Gemini beam to your watch?") },
                         placeholder = { Text("e.g. Summarize today's goals...") },
                         maxLines = 3,
+                        trailingIcon = {
+                            IconButton(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Gemini for boAt Xtend...")
+                                        }
+                                        speechLauncher.launch(intent)
+                                    } catch (e: Exception) {
+                                        errorMessage = "Speech recognizer not found: ${e.message}"
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.Mic, contentDescription = "Voice Input", tint = AccentCyan)
+                            }
+                        },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = AccentCyan,
                             unfocusedBorderColor = SurfaceBorder,
@@ -226,37 +273,63 @@ fun GeminiScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Button(
-                        onClick = {
-                            if (prompt.isBlank()) return@Button
-                            isLoading = true
-                            errorMessage = null
-                            scope.launch {
-                                val result = geminiService.askGemini(prompt)
-                                isLoading = false
-                                result.onSuccess { reply ->
-                                    lastResponse = reply
-                                    if (isConnected) {
-                                        onSendToWatch(reply)
-                                    }
-                                }.onFailure { err ->
-                                    errorMessage = err.localizedMessage ?: "Unknown error"
-                                }
-                            }
-                        },
-                        enabled = !isLoading && prompt.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(color = DarkBackground, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Querying Gemini...", color = DarkBackground, fontWeight = FontWeight.Bold)
-                        } else {
-                            Icon(Icons.Default.Send, contentDescription = null, tint = DarkBackground)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Ask & Beam to Watch", color = DarkBackground, fontWeight = FontWeight.Bold)
+                        Button(
+                            onClick = {
+                                if (prompt.isBlank()) return@Button
+                                isLoading = true
+                                errorMessage = null
+                                scope.launch {
+                                    val result = geminiService.askGemini(prompt)
+                                    isLoading = false
+                                    result.onSuccess { reply ->
+                                        lastResponse = reply
+                                        if (isConnected) {
+                                            onSendToWatch(reply)
+                                        }
+                                    }.onFailure { err ->
+                                        errorMessage = err.localizedMessage ?: "Unknown error"
+                                    }
+                                }
+                            },
+                            enabled = !isLoading && prompt.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(color = DarkBackground, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Thinking...", color = DarkBackground, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            } else {
+                                Icon(Icons.Default.Send, contentDescription = null, tint = DarkBackground)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Ask & Beam", color = DarkBackground, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your question to Gemini...")
+                                    }
+                                    speechLauncher.launch(intent)
+                                } catch (e: Exception) {
+                                    errorMessage = "Speech recognizer not found: ${e.message}"
+                                }
+                            },
+                            enabled = !isLoading,
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentCyan),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice Input", tint = DarkBackground)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Speak", color = DarkBackground, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }

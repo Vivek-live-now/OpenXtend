@@ -241,43 +241,120 @@ object IdoPacketEncoder {
     }
 
     /**
-     * APP_WEATHER (0x0A 0x01): Push today's weather data to watch (20 bytes)
+     * APP_WEATHER (0x0A 0x01): Push today's weather data to watch (EXACTLY 18 bytes matching VeryFit wire capture)
      * Format:
-     * 0x0A, 0x01, [year_lo], [year_hi], [month], [day], [hour], [weather_type],
-     * [current_temp_c], [max_temp_c], [min_temp_c], [humidity_pct], [uv_index], [aqi],
-     * 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+     * 0A 01 [type] [current_temp_c] [max_temp_c] [min_temp_c] [humidity] [uv] [aqi]
+     *       [day1_type] [day1_max] [day1_min]
+     *       [day2_type] [day2_max] [day2_min]
+     *       [day3_type] [day3_max] [day3_min]
      */
-    fun buildWeatherPacket(
+    fun buildWeatherDataPacket(
         currentTempC: Int,
-        minTempC: Int,
         maxTempC: Int,
+        minTempC: Int,
         weatherType: Int = 1, // 1: Sunny, 2: Cloudy, 3: Overcast, 4: Rain, 5: Snow, 6: Storm, 7: Fog
         humidity: Int = 50,
-        uvIndex: Int = 3,
-        aqi: Int = 50,
-        calendar: Calendar = Calendar.getInstance()
+        uvIndex: Int = 1,
+        aqi: Int = 0,
+        day1Type: Int = weatherType,
+        day1Max: Int = maxTempC,
+        day1Min: Int = minTempC,
+        day2Type: Int = weatherType,
+        day2Max: Int = maxTempC,
+        day2Min: Int = minTempC,
+        day3Type: Int = weatherType,
+        day3Max: Int = maxTempC,
+        day3Min: Int = minTempC
     ): ByteArray {
-        val year = calendar.get(Calendar.YEAR)
-        val month = (calendar.get(Calendar.MONTH) + 1).toByte()
-        val day = calendar.get(Calendar.DAY_OF_MONTH).toByte()
-        val hour = calendar.get(Calendar.HOUR_OF_DAY).toByte()
-
-        val packet = ByteArray(20)
+        val packet = ByteArray(18)
         packet[0] = 0x0A.toByte() // PROTOCOL_CMD_WEATHER
         packet[1] = 0x01.toByte() // KEY_WEATHER_TODAY
-        packet[2] = (year and 0xFF).toByte()
-        packet[3] = ((year shr 8) and 0xFF).toByte()
-        packet[4] = month
-        packet[5] = day
-        packet[6] = hour
-        packet[7] = weatherType.toByte()
-        packet[8] = (currentTempC and 0xFF).toByte()
-        packet[9] = (maxTempC and 0xFF).toByte()
-        packet[10] = (minTempC and 0xFF).toByte()
-        packet[11] = humidity.coerceIn(0, 100).toByte()
-        packet[12] = uvIndex.coerceIn(0, 15).toByte()
-        packet[13] = (aqi and 0xFF).toByte()
-        // bytes 14..19 are 0x00 padding
+        packet[2] = weatherType.toByte()
+        packet[3] = (currentTempC and 0xFF).toByte()
+        packet[4] = (maxTempC and 0xFF).toByte()
+        packet[5] = (minTempC and 0xFF).toByte()
+        packet[6] = humidity.coerceIn(0, 100).toByte()
+        packet[7] = uvIndex.coerceIn(0, 15).toByte()
+        packet[8] = (aqi and 0xFF).toByte()
+
+        // Day 1 forecast
+        packet[9] = day1Type.toByte()
+        packet[10] = (day1Max and 0xFF).toByte()
+        packet[11] = (day1Min and 0xFF).toByte()
+
+        // Day 2 forecast
+        packet[12] = day2Type.toByte()
+        packet[13] = (day2Max and 0xFF).toByte()
+        packet[14] = (day2Min and 0xFF).toByte()
+
+        // Day 3 forecast
+        packet[15] = day3Type.toByte()
+        packet[16] = (day3Max and 0xFF).toByte()
+        packet[17] = (day3Min and 0xFF).toByte()
+
         return packet
+    }
+
+    /**
+     * APP_WEATHER_CITY_NAME (0x0A 0x02): Push city name to watch (EXACTLY 20 bytes matching VeryFit wire capture)
+     * Format: 0A 02 [city_len] [city_ascii...] [00 00 ...]
+     */
+    fun buildWeatherCityPacket(cityName: String): ByteArray {
+        val cityBytes = cityName.toByteArray(StandardCharsets.UTF_8).take(17).toByteArray()
+        val packet = ByteArray(20)
+        packet[0] = 0x0A.toByte() // PROTOCOL_CMD_WEATHER
+        packet[1] = 0x02.toByte() // KEY_WEATHER_CITY_NAME
+        packet[2] = cityBytes.size.toByte()
+        System.arraycopy(cityBytes, 0, packet, 3, cityBytes.size)
+        return packet
+    }
+
+    /**
+     * SET 0x12 0x24: Enable Voice Assistant / Alexa state on watch (5 bytes)
+     * Tells the watch that the companion app authorizes voice assistant.
+     */
+    fun buildSetAlexaVoiceState(enabled: Boolean = true): ByteArray {
+        val switchVal = if (enabled) 0x01.toByte() else 0x00.toByte()
+        return byteArrayOf(0x12, 0x24, switchVal, 0x00, 0x00)
+    }
+
+    /**
+     * SET 0x12 0x21: Alexa Operational Ready handshake (4 bytes)
+     */
+    fun buildSetAlexaReady(): ByteArray {
+        return byteArrayOf(0x12, 0x21, 0x01, 0x00)
+    }
+
+    /**
+     * ACK 0x12 [key]: Acknowledge watch voice event
+     */
+    fun buildAlexaVoiceAck(key: Int): ByteArray {
+        return byteArrayOf(0x12, key.toByte(), 0x00, 0x00)
+    }
+
+    /**
+     * CMD 0x13 0x01: Send Voice Assistant text answer to watch screen (chunks)
+     */
+    fun buildVoiceAssistantResponse(replyText: String): List<ByteArray> {
+        val textBytes = replyText.toByteArray(StandardCharsets.UTF_8).take(180).toByteArray()
+        val chunkSize = 16
+        val totalChunks = (textBytes.size + chunkSize - 1) / chunkSize
+        val frames = mutableListOf<ByteArray>()
+
+        for (i in 0 until totalChunks) {
+            val frame = ByteArray(20)
+            frame[0] = 0x13.toByte() // CMD_VOICE
+            frame[1] = 0x01.toByte()
+            frame[2] = totalChunks.toByte()
+            frame[3] = (i + 1).toByte()
+
+            val offset = i * chunkSize
+            val remaining = textBytes.size - offset
+            val copyLen = remaining.coerceAtMost(chunkSize)
+            System.arraycopy(textBytes, offset, frame, 4, copyLen)
+            frames.add(frame)
+        }
+
+        return frames
     }
 }

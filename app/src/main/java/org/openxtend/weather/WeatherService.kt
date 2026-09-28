@@ -48,14 +48,24 @@ class WeatherService(private val context: Context) {
         val maxTempC: Int,
         val weatherType: Int, // 1: Sunny, 2: Cloudy, 3: Overcast, 4: Rain, 5: Snow, 6: Storm, 7: Fog
         val conditionName: String,
-        val humidity: Int
+        val humidity: Int,
+        val cityName: String = "Delhi",
+        val day1Type: Int = weatherType,
+        val day1Max: Int = maxTempC,
+        val day1Min: Int = minTempC,
+        val day2Type: Int = weatherType,
+        val day2Max: Int = maxTempC,
+        val day2Min: Int = minTempC,
+        val day3Type: Int = weatherType,
+        val day3Max: Int = maxTempC,
+        val day3Min: Int = minTempC
     )
 
     suspend fun fetchWeather(): Result<WeatherData> = withContext(Dispatchers.IO) {
         try {
-            // Default coordinates (e.g. 28.61, 77.20) or locate via free IP API
             var lat = 28.6139
             var lon = 77.2090
+            var city = "Delhi"
 
             try {
                 val locRequest = Request.Builder()
@@ -66,12 +76,16 @@ class WeatherService(private val context: Context) {
                     val locJson = JSONObject(locResponse.body?.string() ?: "")
                     lat = locJson.optDouble("latitude", lat)
                     lon = locJson.optDouble("longitude", lon)
+                    val fetchedCity = locJson.optString("city", "")
+                    if (fetchedCity.isNotBlank()) {
+                        city = fetchedCity
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "IP Geolocation lookup skipped, using default coordinates: ${e.message}")
             }
 
-            val weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto"
+            val weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto"
             val weatherRequest = Request.Builder().url(weatherUrl).build()
             val response = client.newCall(weatherRequest).execute()
             if (!response.isSuccessful) {
@@ -88,14 +102,31 @@ class WeatherService(private val context: Context) {
 
             var maxTemp = currentTemp + 3
             var minTemp = currentTemp - 3
+            var d1Max = maxTemp; var d1Min = minTemp; var d1Type = mapWmoCode(wmoCode).first
+            var d2Max = maxTemp; var d2Min = minTemp; var d2Type = mapWmoCode(wmoCode).first
+            var d3Max = maxTemp; var d3Min = minTemp; var d3Type = mapWmoCode(wmoCode).first
+
             if (daily != null) {
                 val maxArr = daily.optJSONArray("temperature_2m_max")
                 val minArr = daily.optJSONArray("temperature_2m_min")
+                val codeArr = daily.optJSONArray("weather_code")
+
                 if (maxArr != null && maxArr.length() > 0) maxTemp = maxArr.getDouble(0).toInt()
                 if (minArr != null && minArr.length() > 0) minTemp = minArr.getDouble(0).toInt()
+
+                if (maxArr != null && maxArr.length() > 1) d1Max = maxArr.getDouble(1).toInt()
+                if (minArr != null && minArr.length() > 1) d1Min = minArr.getDouble(1).toInt()
+                if (codeArr != null && codeArr.length() > 1) d1Type = mapWmoCode(codeArr.optInt(1, wmoCode)).first
+
+                if (maxArr != null && maxArr.length() > 2) d2Max = maxArr.getDouble(2).toInt()
+                if (minArr != null && minArr.length() > 2) d2Min = minArr.getDouble(2).toInt()
+                if (codeArr != null && codeArr.length() > 2) d2Type = mapWmoCode(codeArr.optInt(2, wmoCode)).first
+
+                if (maxArr != null && maxArr.length() > 3) d3Max = maxArr.getDouble(3).toInt()
+                if (minArr != null && minArr.length() > 3) d3Min = minArr.getDouble(3).toInt()
+                if (codeArr != null && codeArr.length() > 3) d3Type = mapWmoCode(codeArr.optInt(3, wmoCode)).first
             }
 
-            // Map WMO code to IDO type & readable name
             val (type, name) = mapWmoCode(wmoCode)
 
             val data = WeatherData(
@@ -104,14 +135,24 @@ class WeatherService(private val context: Context) {
                 maxTempC = maxTemp,
                 weatherType = type,
                 conditionName = name,
-                humidity = humidity
+                humidity = humidity,
+                cityName = city,
+                day1Type = d1Type,
+                day1Max = d1Max,
+                day1Min = d1Min,
+                day2Type = d2Type,
+                day2Max = d2Max,
+                day2Min = d2Min,
+                day3Type = d3Type,
+                day3Max = d3Max,
+                day3Min = d3Min
             )
 
             // Cache
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit()
                 .putInt(KEY_LAST_TEMP, currentTemp)
-                .putString(KEY_LAST_CONDITION, name)
+                .putString(KEY_LAST_CONDITION, "$city: $name")
                 .apply()
 
             Result.success(data)
@@ -123,7 +164,8 @@ class WeatherService(private val context: Context) {
                 maxTempC = 30,
                 weatherType = 1,
                 conditionName = "Sunny / Clear",
-                humidity = 55
+                humidity = 55,
+                cityName = "Delhi"
             )
             Result.success(fallback)
         }
@@ -147,15 +189,24 @@ class WeatherService(private val context: Context) {
             val result = fetchWeather()
             val weather = result.getOrNull()
             if (weather != null) {
-                bleManager.setWeatherSwitch(true)
                 bleManager.pushWeather(
                     tempC = weather.currentTempC,
-                    minC = weather.minTempC,
                     maxC = weather.maxTempC,
+                    minC = weather.minTempC,
                     weatherType = weather.weatherType,
-                    humidity = weather.humidity
+                    humidity = weather.humidity,
+                    cityName = weather.cityName,
+                    day1Type = weather.day1Type,
+                    day1Max = weather.day1Max,
+                    day1Min = weather.day1Min,
+                    day2Type = weather.day2Type,
+                    day2Max = weather.day2Max,
+                    day2Min = weather.day2Min,
+                    day3Type = weather.day3Type,
+                    day3Max = weather.day3Max,
+                    day3Min = weather.day3Min
                 )
-                Result.success("${weather.currentTempC}°C, ${weather.conditionName}")
+                Result.success("${weather.cityName}: ${weather.currentTempC}°C, ${weather.conditionName}")
             } else {
                 Result.failure(Exception("Failed to fetch weather"))
             }

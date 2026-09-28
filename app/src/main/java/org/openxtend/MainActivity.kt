@@ -58,10 +58,15 @@ class MainActivity : ComponentActivity() {
             syncService = binder?.getService()
             isBoundState.value = true
 
-            // Set up watch event listeners (e.g. Find My Phone)
+            // Set up watch event listeners (e.g. Find My Phone & Voice Assistant)
             syncService?.bleManager?.onFindPhoneRequested = {
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, "Watch triggered: Find Phone!", Toast.LENGTH_LONG).show()
+                }
+            }
+            syncService?.bleManager?.onVoiceAssistantTriggered = { key, _ ->
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Watch Voice Assistant triggered! (0x${"%02X".format(key)})", Toast.LENGTH_SHORT).show()
                 }
             }
             syncService?.bleManager?.onStatusMessage = { msg ->
@@ -119,6 +124,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        permissions.add(Manifest.permission.RECORD_AUDIO)
 
         val needed = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -186,11 +192,7 @@ class MainActivity : ComponentActivity() {
                     MainTab.GEMINI -> GeminiScreen(
                         isConnected = (connectionStatus == ConnectionStatus.CONNECTED),
                         onSendToWatch = { replyText ->
-                            syncService?.bleManager?.pushNotification(
-                                typeId = 8,
-                                sender = "Gemini AI",
-                                message = replyText
-                            )
+                            syncService?.bleManager?.pushVoiceResponse(replyText)
                         }
                     )
                     MainTab.CONTROLS -> ControlsScreen(
