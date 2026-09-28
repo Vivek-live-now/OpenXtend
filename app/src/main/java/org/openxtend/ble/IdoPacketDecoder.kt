@@ -60,6 +60,7 @@ object IdoPacketDecoder {
                                 isLowPower = isLowPower
                             )
                         }
+                    }
                     0x07 -> { // Real-time Heart Rate reply
                         val hr = when {
                             data.size >= 3 && (data[2].toInt() and 0xFF) in 30..220 -> data[2].toInt() and 0xFF

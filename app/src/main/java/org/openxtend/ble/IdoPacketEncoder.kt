@@ -297,7 +297,7 @@ object IdoPacketEncoder {
 
     /**
      * APP_WEATHER_CITY_NAME (0x0A 0x02): Push city name to watch (EXACTLY 20 bytes matching VeryFit wire capture)
-     * Format: 0A 02 [city_len] [city_ascii...] [00 00 ...]
+     * Format: 0A 02 <city_len> <city_ascii...> <00 00 ...>
      */
     fun buildWeatherCityPacket(cityName: String): ByteArray {
         val cityBytes = cityName.toByteArray(StandardCharsets.UTF_8).take(17).toByteArray()
