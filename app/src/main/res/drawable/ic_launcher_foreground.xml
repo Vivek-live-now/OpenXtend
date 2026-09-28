@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Top Watch Strap -->
+    <path
+        android:fillColor="#1E222B"
+        android:pathData="M43,18 L65,18 L65,30 L43,30 Z" />
+
+    <!-- Bottom Watch Strap -->
+    <path
+        android:fillColor="#1E222B"
+        android:pathData="M43,78 L65,78 L65,90 L43,90 Z" />
+
+    <!-- Smartwatch Case / Bezel Outer -->
+    <path
+        android:fillColor="#2B303C"
+        android:pathData="M33,30 L75,30 A8,8 0 0,1 83,38 L83,70 A8,8 0 0,1 75,78 L33,78 A8,8 0 0,1 25,70 L25,38 A8,8 0 0,1 33,30 Z" />
+
+    <!-- Smartwatch Screen Area -->
+    <path
+        android:fillColor="#0F1115"
+        android:pathData="M35,32 L73,32 A6,6 0 0,1 79,38 L79,70 A6,6 0 0,1 73,76 L35,76 A6,6 0 0,1 29,70 L29,38 A6,6 0 0,1 35,32 Z" />
+
+    <!-- Side Button / Crown -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M83,49 L86,49 A1.5,1.5 0 0,1 87.5,50.5 L87.5,57.5 A1.5,1.5 0 0,1 86,59 L83,59 Z" />
+
+    <!-- Heartbeat Pulse Wave on Display -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M34,54 L44,54 L47,46 L51,62 L55,48 L58,57 L61,54 L74,54" />
+
+    <!-- Smart AI Sparkle / Node on Watch Screen -->
+    <path
+        android:fillColor="#00E676"
+        android:pathData="M54,39 A2.5,2.5 0 1,1 53.99,39 Z" />
+
+</vector>
